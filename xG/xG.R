@@ -2,6 +2,10 @@ library(RMariaDB)
 library(tidyverse)
 library(caret)
 library(randomForest)
+library(car)
+library(pROC)
+library(GGally)
+library(Boruta)
 
 #### Data Retrievel ####
 readRenviron("data/.Renviron")
@@ -73,15 +77,6 @@ allshotevents$SHOTISGOAL <- as.factor(allshotevents$SHOTISGOAL)
 
 
 
-#### SET VIARIABLES HERE!! ####
-x_variables <- c(
-                 "shot_angle", 
-                 "SHOTBODYPART", 
-                 "shot_distance"
-                )
-
-variables <- as.formula(paste("SHOTISGOAL ~", paste(x_variables, collapse = " + ")))
-
 
 #### SPLITTING DATA ####
 set.seed(1980) # for reproducablility
@@ -99,26 +94,106 @@ round(prop.table(table(test_data$SHOTISGOAL)), 4)
 
 
 #### beskrivende statistik ####
+# clean df
+drop_cols <- c("COMPETITION_WYID.x", "MATCH_WYID.x", "EVENT_WYID",
+               "PRIMARYTYPE.x", "SHOTONTARGET", "SHOTGOALZONE",
+               "SHOTXG", "SHOTPOSTSHOTXG", "SHOTGOALKEEPERACTION_WYID", 
+               "SHOTGOALKEEPER_WYID", "SEASON_WYID", "COMPETITION_WYID.y", 
+               "MATCH_WYID.y", "MATCHTIMESTAMP", "VIDEOTIMESTAMP", 
+               "RELATEDEVENT_WYID", "PRIMARYTYPE.y", "TEAM_WYID", 
+               "OPPONENTTEAM_WYID", "PLAYER_WYID", "POSSESSION_WYID", 
+               "POSSESSIONTEAM_WYID", "x", "y", "xG_RF","SECOND")
 
+allshotevents_clean <- allshotevents[, !(names(allshotevents) %in% drop_cols)]
+
+
+#### SET VIARIABLES HERE!! ####
+x_variables <- c(
+  "shot_angle", 
+  "SHOTBODYPART", 
+  "shot_distance"
+)
+
+variables <- as.formula(paste("SHOTISGOAL ~", paste(x_variables, collapse = " + ")))
+
+boruta_result <- Boruta(SHOTISGOAL ~ ., data = train_data[, c(x_variables, "SHOTISGOAL")], doTrace = 1)
 
 
 
 #### x-variables and influence on y ####
 
+#### Data Exploration ####
+pair_data <- allshotevents %>%
+  select(all_of(x_variables), SHOTISGOAL)
+ggpairs(pair_data, aes(color = SHOTISGOAL, alpha = 0.6))
 
 
 #### algos ####
 ##### GLM #####
-glm <- glm(variables, data = train_data, family = "binomial")
-summary(glm)
+# Univariative GLM Loop
+# Initialiser data frame til resultater
+glm_result <- data.frame(
+  x_variable = character(),
+  coefficient = numeric(),
+  p_value = numeric(),
+  p_stars = character()
+)
+
+# Funktion til at tildele signifikansstjerner
+get_significance_stars <- function(p) {
+  if (p < 0.001) {
+    return("***")
+  } else if (p < 0.01) {
+    return("**")
+  } else if (p < 0.05) {
+    return("*")
+  } else if (p < 0.1) {
+    return(".")
+  } else {
+    return("")
+  }
+}
+
+# Loop gennem alle forklarende variable
+for (i in x_variables) {
+  formula_glm <- as.formula(paste("SHOTISGOAL ~", i))
+  glm_model <- glm(formula_glm, data = train_data, family = "binomial")
+  
+  # Udtræk koefficient og p-værdi for den pågældende variabel
+  glm_coeff <- summary(glm_model)$coefficients[2,1]  # Koefficient
+  glm_pval <- summary(glm_model)$coefficients[2,4]  # P-værdi
+  glm_stars <- get_significance_stars(glm_pval)
+  
+  # Gem resultater i data frame
+  tmp_glm <- data.frame(
+    x_variable = i,
+    coefficient = as.numeric(glm_coeff),
+    p_value = as.numeric(glm_pval),
+    p_stars = glm_stars
+  )
+  
+  glm_result <- rbind(glm_result, tmp_glm)
+}
+
+glm_result$coefficient <- round(glm_result$coefficient,2)
+glm_result$p_value <- round(glm_result$p_value,4)
+
+# Full multivariate GLM
+glm_train <- glm(variables, 
+                 data = train_data, 
+                 family = "binomial")
+summary(glm_train)
+# multicollinearity
+vif(glm_train)
 
 
+##### Singular Tree #####
 
 
 ##### Random Forest #####
 rf_model <- randomForest(variables, 
                          data = train_data,
-                         ntree = 1000,      
+                         ntree = 10000,      
                          mtry = 2, 
                          importance = TRUE)
 varImpPlot(rf_model)
@@ -126,7 +201,7 @@ varImpPlot(rf_model)
 rf_test <- predict(rf_model, test_data, type = "prob")[, "1"]
 
 
-###### Best Threshold ######
+###### Best Threshold F1 er bedre ######
 thresholds <- seq(0.1, 1.0, by = 0.001)
 
 # Gem Accuracy for hver threshold
@@ -153,8 +228,34 @@ for (i in seq_along(thresholds)) {
   
   # Gem resultater
   threshold_results$Accuracy[i] <- round(acc_score, 5)
-  best_threshold <- threshold_results$Threshold[which.max(threshold_results$Accuracy)]
 }
+
+###### F1 Score ######
+thresholds <- seq(0.00, 1.0, by = 0.01)
+
+f1_results <- data.frame(Threshold = thresholds, F1 = NA)
+
+for (i in seq_along(thresholds)) {
+  t <- thresholds[i]
+  
+  # binariser prediktionerne
+  pred_class <- ifelse(rf_test > t, "1", "0")
+  
+  # confusion matrix
+  cm <- confusionMatrix(as.factor(pred_class), as.factor(test_data$SHOTISGOAL), positive = "1")
+  
+  # gem F1
+  f1_results$F1[i] <- cm$byClass["F1"]
+}
+
+# Find bedste threshold baseret på F1
+best_f1 <- f1_results[which.max(f1_results$F1), ]
+print(best_f1)
+
+
+###### Make the predicts ######
+best_threshold <- f1_results$Threshold[which.max(f1_results$F1)]
+print(best_threshold)
 
 rf_preds <- ifelse(rf_test > best_threshold, "1", "0")
 
@@ -164,8 +265,6 @@ rf_confusion
 
 # for total
 allshotevents$xG_RF <- predict(rf_model, allshotevents, type = "prob")[, "1"]
-
-
 
 
 
