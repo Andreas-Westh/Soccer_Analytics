@@ -94,44 +94,45 @@ round(prop.table(table(test_data$SHOTISGOAL)), 4)
 
 
 #### beskrivende statistik ####
-# clean df
-drop_cols <- c("COMPETITION_WYID.x", "MATCH_WYID.x", "EVENT_WYID",
-               "PRIMARYTYPE.x", "SHOTONTARGET", "SHOTGOALZONE",
-               "SHOTXG", "SHOTPOSTSHOTXG", "SHOTGOALKEEPERACTION_WYID", 
-               "SHOTGOALKEEPER_WYID", "SEASON_WYID", "COMPETITION_WYID.y", 
-               "MATCH_WYID.y", "MATCHTIMESTAMP", "VIDEOTIMESTAMP", 
-               "RELATEDEVENT_WYID", "PRIMARYTYPE.y", "TEAM_WYID", 
-               "OPPONENTTEAM_WYID", "PLAYER_WYID", "POSSESSION_WYID", 
-               "POSSESSIONTEAM_WYID", "x", "y", "xG_RF","SECOND")
-
-allshotevents_clean <- allshotevents[, !(names(allshotevents) %in% drop_cols)]
-
-train_index_clean <- createDataPartition(y = allshotevents_clean$SHOTISGOAL,
-                                   # times = x
-                                   p = 0.8,
-                                   list = FALSE)# createDataPartition helps unbalanced datasets maintain a similar ratio of goals
-
-train_data_clean <- allshotevents_clean[train_index_clean,]
-test_data_clean<- allshotevents_clean[-train_index_clean,]
-
-#### SET VIARIABLES HERE!! ####
-x_variables <- c(
-  "shot_angle", 
-  "SHOTBODYPART", 
-  "shot_distance"
-)
-
-variables <- as.formula(paste("SHOTISGOAL ~", paste(x_variables, collapse = " + ")))
 
 ##### Simple boruta #####
-boruta_result <- Boruta(SHOTISGOAL ~ ., data = train_data_clean, doTrace = 1)
+boruta_result <- Boruta(SHOTISGOAL ~ ., data = train_data_clean, doTrace = 1,)
 plot(boruta_result, las = 2, cex.axis = 0.7)
 
 final_vars <- getSelectedAttributes(boruta_result, withTentative = FALSE)
 importance_df <- attStats(boruta_result)
 boruta_df <- importance_df[order(-importance_df$meanImp), ]
+max_shadow <- max(importance_df[grepl("shadow", rownames(importance_df)), "meanImp"])
 
+# Filter through shadows and 100th procentile
 
+#### SET VIARIABLES HERE!! ####
+# fjerne nogle af de mange
+x_variables <- c(
+  "shot_angle", 
+  "shot_distance", 
+  "POSSESSIONDURATION",
+  "SHOTBODYPART",
+  "POSSESSIONENDLOCATIONX",
+  "POSSESSIONENDLOCATIONY",
+  "POSSESSIONEVENTSNUMBER",
+  "POSSESSIONEVENTINDEX"
+)
+
+variables <- as.formula(paste("SHOTISGOAL ~", paste(x_variables, collapse = " + ")))
+
+# clean df
+selected_cols <- c(x_variables, "SHOTISGOAL")
+allshotevents_clean <- allshotevents[, selected_cols]
+
+train_index_clean <- createDataPartition(
+  y = allshotevents_clean$SHOTISGOAL,
+  p = 0.8,
+  list = FALSE
+)
+
+train_data_clean <- allshotevents_clean[train_index_clean, ]
+test_data_clean  <- allshotevents_clean[-train_index_clean, ]
 
 #### x-variables and influence on y ####
 
@@ -139,6 +140,21 @@ boruta_df <- importance_df[order(-importance_df$meanImp), ]
 pair_data <- allshotevents %>%
   select(all_of(x_variables), SHOTISGOAL)
 ggpairs(pair_data, aes(color = SHOTISGOAL, alpha = 0.6))
+
+ggpairs(
+  pair_data,
+  aes(color = SHOTISGOAL, alpha = 0.5),
+  lower = list(continuous = wrap("points", alpha = 0.4, size = 0.6)),
+  upper = list(continuous = wrap("points", alpha = 0.4, size = 0.6)), # <- scatter in both
+  diag = list(continuous = wrap("densityDiag", alpha = 0.6))
+) +
+  theme_minimal(base_size = 10) +
+  theme(
+    panel.grid = element_blank(),
+    strip.background = element_blank(),
+    legend.position = "bottom"
+  ) +
+  scale_color_manual(values = c("red", "cyan"))
 
 
 #### algos ####
