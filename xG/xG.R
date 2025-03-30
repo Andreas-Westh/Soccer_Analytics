@@ -106,6 +106,13 @@ drop_cols <- c("COMPETITION_WYID.x", "MATCH_WYID.x", "EVENT_WYID",
 
 allshotevents_clean <- allshotevents[, !(names(allshotevents) %in% drop_cols)]
 
+train_index_clean <- createDataPartition(y = allshotevents_clean$SHOTISGOAL,
+                                   # times = x
+                                   p = 0.8,
+                                   list = FALSE)# createDataPartition helps unbalanced datasets maintain a similar ratio of goals
+
+train_data_clean <- allshotevents_clean[train_index_clean,]
+test_data_clean<- allshotevents_clean[-train_index_clean,]
 
 #### SET VIARIABLES HERE!! ####
 x_variables <- c(
@@ -116,7 +123,13 @@ x_variables <- c(
 
 variables <- as.formula(paste("SHOTISGOAL ~", paste(x_variables, collapse = " + ")))
 
-boruta_result <- Boruta(SHOTISGOAL ~ ., data = train_data[, c(x_variables, "SHOTISGOAL")], doTrace = 1)
+##### Simple boruta #####
+boruta_result <- Boruta(SHOTISGOAL ~ ., data = train_data_clean, doTrace = 1)
+plot(boruta_result, las = 2, cex.axis = 0.7)
+
+final_vars <- getSelectedAttributes(boruta_result, withTentative = FALSE)
+importance_df <- attStats(boruta_result)
+boruta_df <- importance_df[order(-importance_df$meanImp), ]
 
 
 
