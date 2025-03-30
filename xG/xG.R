@@ -20,6 +20,9 @@ con <- dbConnect(MariaDB(),
 dbListTables(con)
 allshots_raw <- dbReadTable(con, "wyscout_matchevents_shots_sl") 
 allevents_raw <- dbReadTable(con, "wyscout_matchevents_common_sl") 
+allplayers_raw <- dbReadTable(con, "wyscout_players_sl") 
+allteams_raw <- dbReadTable(con, "wyscout_teams_sl") 
+
 
 #bind those badboys
 allshotevents_raw <- allshots_raw %>%
@@ -109,16 +112,18 @@ round(prop.table(table(test_data$SHOTISGOAL)), 4)
 glm <- glm(variables, data = train_data, family = "binomial")
 summary(glm)
 
+
+
+
 ##### Random Forest #####
 rf_model <- randomForest(variables, 
                          data = train_data,
-                         ntree = 100,      
+                         ntree = 1000,      
                          mtry = 2, 
                          importance = TRUE)
 varImpPlot(rf_model)
 # Forudsig sandsynligheder fra modellen
 rf_test <- predict(rf_model, test_data, type = "prob")[, "1"]
-rf_confusion <- confusionMatrix(as.factor(rf_preds))
 
 
 ###### Best Threshold ######
@@ -153,10 +158,20 @@ for (i in seq_along(thresholds)) {
 
 rf_preds <- ifelse(rf_test > best_threshold, "1", "0")
 
+# for test
 rf_confusion <- confusionMatrix(as.factor(rf_preds), as.factor(test_data$SHOTISGOAL))
 rf_confusion
 
+# for total
+allshotevents$xG_RF <- predict(rf_model, allshotevents, type = "prob")[, "1"]
 
+
+
+
+
+xG_Comparison <- allshotevents %>%
+  select(EVENT_WYID,LOCATIONX,LOCATIONY,SHOTISGOAL,SHOTXG,xG_RF) %>%
+  as.data.frame()
 
 
 
