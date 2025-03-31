@@ -49,7 +49,7 @@ allshotevents$shot_distance <- sqrt((100 - allshotevents$POSSESSIONENDLOCATIONX)
 
 #vinkel
 # define goal parameters
-goal_width <- 11.43  # width of the goal in meters
+goal_width <- 11.43  # width of the goal
 goal_center_y <- 50  # center of the goal
 goal_x <- 100        # goal line x-coordinate
 
@@ -129,6 +129,13 @@ x_variables <- c(
   "POSSESSIONENDLOCATIONX",
   "POSSESSIONENDLOCATIONY"
 )
+
+x_variables <- c(
+  "shot_angle", 
+  "shot_distance", 
+  "SHOTBODYPART"
+)
+
 
 
 variables <- as.formula(paste("SHOTISGOAL ~", paste(x_variables, collapse = " + ")))
@@ -279,7 +286,7 @@ for (i in seq_along(trees)) {
   cat("Done. AUC:", round(auc_df$AUC[i], 4), "\n\n")
 }
 best_trees <- auc_df$ntree[which.max(auc_df$AUC)]
-
+print(best_trees)
 # print plot
 rf_ntree_loop
 
