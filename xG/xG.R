@@ -302,6 +302,75 @@ xgb_auc <- pROC::auc(y_test, xgb_pred)
 cat("AUC for XGBoost:", round(xgb_auc, 4), "\n")
 
 
+###### Advanced ######
+xgb_results <- data.frame(
+  max_depth = numeric(),
+  subsample = numeric(),
+  colsample_bytree = numeric(),
+  best_iter = numeric(),
+  best_auc = numeric()
+)
+
+# Loops over hyperparametre
+for (depth in c(3, 5, 7)) {
+  for (sub in c(0.5, 0.7, 1.0)) {
+    for (col in c(0.5, 0.7, 1.0)) {
+      
+      cat("Træner med max_depth =", depth, ", subsample =", sub, ", colsample_bytree =", col, "\n")
+      
+      xgb_cv <- xgb.cv(
+        set.seed(1980),
+        data = dtrain,
+        objective = "binary:logistic",
+        eval_metric = "auc",
+        nrounds = 1000,
+        nfold = 5,
+        early_stopping_rounds = 25,
+        verbose = 0,
+        params = list(
+          eta = 0.005,
+          max_depth = depth,
+          subsample = sub,
+          colsample_bytree = col
+        )
+      )
+      
+      best_iter <- which.max(xgb_cv$evaluation_log$test_auc_mean)
+      best_auc <- max(xgb_cv$evaluation_log$test_auc_mean)
+      
+      xgb_results <- rbind(xgb_results, data.frame(
+        max_depth = depth,
+        subsample = sub,
+        colsample_bytree = col,
+        best_iter = best_iter,
+        best_auc = round(best_auc, 4)
+      ))
+      
+      cat("Færdig – Bedste AUC:", round(best_auc, 4), "efter", best_iter, "runder\n\n")
+    }
+  }
+}
+
+best_row <- xgb_results[which.max(xgb_results$best_auc), ]
+print(best_row)
+
+xgb_model_final <- xgboost(
+  set.seed(1980),
+  data = dtrain,
+  objective = "binary:logistic",
+  eval_metric = "auc",
+  nrounds = best_row$best_iter,
+  eta = 0.005,  # samme learning rate som i tuning
+  max_depth = best_row$max_depth,
+  subsample = best_row$subsample,
+  colsample_bytree = best_row$colsample_bytree,
+  verbose = 1
+)
+
+xgb_pred <- predict(xgb_model_final, x_test)
+xgb_auc <- auc(y_test, xgb_pred)
+cat("Endelig AUC for tuned XGBoost:", round(xgb_auc, 4), "\n")
+
 ##### WyScout #####
 roc_wyscout <- roc(test_data$SHOTISGOAL, test_data$SHOTXG)
 auc_wyscout <- auc(roc_wyscout)
