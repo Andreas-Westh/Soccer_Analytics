@@ -7,6 +7,8 @@ library(pROC)
 library(GGally)
 library(Boruta)
 library(xgboost)
+library(rpart)
+library(rpart.plot)
 
 #### Data Retrievel ####
 readRenviron("data/.Renviron")
@@ -232,6 +234,14 @@ glm_auc <- auc(test_data_clean$SHOTISGOAL, glm_probs)
 cat("AUC for GLM:", round(glm_auc, 4), "\n")
 
 ##### Singular Tree #####
+simple_tree <- rpart(variables,
+                     data = train_data_clean,
+                     method = "class",
+                     control = rpart.control(cp = 0.001)
+                     )  
+tree_probs <- predict(simple_tree, newdata = test_data_clean, type = "prob")[, "1"]
+tree_auc <- auc(test_data_clean$SHOTISGOAL, tree_probs)
+cat("AUC for enkelt beslutningstræ:", round(tree_auc, 4), "\n")
 
 
 ##### Random Forest #####
@@ -253,33 +263,41 @@ trees <- c(10, 100, 500, 1000, 2000, 5000, 10000)
 auc_df <- data.frame(ntree = trees, AUC = NA)
 
 for (i in seq_along(trees)) {
+  set.seed(1980)
   cat("Training Random Forest with", trees[i], "trees...\n")
   
   rf_model <- randomForest(variables, 
-                           data = train_data, 
+                           data = train_data_clean, 
                            ntree = trees[i], 
                            mtry = 2)
   
-  probs <- predict(rf_model, test_data, type = "prob")[, "1"]
+  probs <- predict(rf_model, test_data_clean, type = "prob")[, "1"]
   
-  roc_obj <- roc(test_data$SHOTISGOAL, probs, quiet = TRUE)
+  roc_obj <- roc(test_data_clean$SHOTISGOAL, probs, quiet = TRUE)
   auc_df$AUC[i] <- auc(roc_obj)
   
   cat("Done. AUC:", round(auc_df$AUC[i], 4), "\n\n")
 }
+best_trees <- auc_df$ntree[which.max(auc_df$AUC)]
+
 # print plot
 rf_ntree_loop
 
 
 # rf
-rf_model <- randomForest(variables, 
-                         data = train_data,
-                         ntree = 10000,      
-                         mtry = 2, 
-                         importance = TRUE)
+rf_model_final <- randomForest(
+  formula = variables,
+  data = train_data_clean,
+  ntree = best_trees,
+  mtry = best_mtry,
+  importance = TRUE
+)
+
 varImpPlot(rf_model)
 # Forudsig sandsynligheder fra modellen
-rf_test <- predict(rf_model, test_data, type = "prob")[, "1"]
+rf_test <- predict(rf_model_final, test_data_clean, type = "prob")[, "1"]
+rf_auc <- auc(test_data_clean$SHOTISGOAL, rf_test)
+cat("AUC for Random Forest:", round(rf_auc, 4), "\n")
 
 ##### XGBoost #####
 # xgboost vil have det i matrix, og y som numeric
