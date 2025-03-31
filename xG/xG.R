@@ -144,6 +144,7 @@ train_index_clean <- createDataPartition(
 train_data_clean <- allshotevents_clean[train_index_clean, ]
 test_data_clean  <- allshotevents_clean[-train_index_clean, ]
 
+
 #### x-variables and influence on y ####
 
 #### Data Exploration ####
@@ -219,12 +220,16 @@ glm_result$p_value <- round(glm_result$p_value,4)
 
 # Full multivariate GLM
 glm_train <- glm(variables, 
-                 data = train_data, 
+                 data = train_data_clean, 
                  family = "binomial")
 summary(glm_train)
 # multicollinearity
 vif(glm_train)
 
+glm_probs <- predict(glm_train, newdata = test_data_clean, type = "response")
+
+glm_auc <- auc(test_data_clean$SHOTISGOAL, glm_probs)
+cat("AUC for GLM:", round(glm_auc, 4), "\n")
 
 ##### Singular Tree #####
 
@@ -297,7 +302,7 @@ xgb_model <- xgboost(data = dtrain,
 
 # Predict og beregn AUC
 xgb_pred <- predict(xgb_model, x_test)
-xgb_auc <- pROC::auc(y_test, xgb_pred)
+xgb_auc <- auc(y_test, xgb_pred)
 
 cat("AUC for XGBoost:", round(xgb_auc, 4), "\n")
 
@@ -377,7 +382,7 @@ auc_wyscout <- auc(roc_wyscout)
 print(auc_wyscout)
 
 
-###### Best Threshold F1 er bedre ######
+###### Best Threshold F1 måske ikke relevant? ######
 thresholds <- seq(0.1, 1.0, by = 0.001)
 
 # Gem Accuracy for hver threshold
