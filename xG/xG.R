@@ -6,6 +6,7 @@ library(car)
 library(pROC)
 library(GGally)
 library(Boruta)
+library(xgboost)
 
 #### Data Retrievel ####
 readRenviron("data/.Renviron")
@@ -96,7 +97,7 @@ round(prop.table(table(test_data$SHOTISGOAL)), 4)
 #### beskrivende statistik ####
 
 ##### Simple boruta #####
-boruta_result <- Boruta(SHOTISGOAL ~ ., data = train_data_clean, doTrace = 1,)
+boruta_result <- Boruta(SHOTISGOAL ~ x_variables, data = train_data_clean, doTrace = 1,)
 plot(boruta_result, las = 2, cex.axis = 0.7)
 
 final_vars <- getSelectedAttributes(boruta_result, withTentative = FALSE)
@@ -108,16 +109,25 @@ max_shadow <- max(importance_df[grepl("shadow", rownames(importance_df)), "meanI
 
 #### SET VIARIABLES HERE!! ####
 # fjerne nogle af de mange
+#x_variables <- c(
+#  "shot_angle", 
+#  "shot_distance", 
+#  "POSSESSIONDURATION",
+#  "SHOTBODYPART",
+#  "POSSESSIONENDLOCATIONX",
+#  "POSSESSIONENDLOCATIONY",
+#  "POSSESSIONEVENTSNUMBER",
+#  "POSSESSIONEVENTINDEX"
+#)
+
 x_variables <- c(
   "shot_angle", 
   "shot_distance", 
-  "POSSESSIONDURATION",
   "SHOTBODYPART",
   "POSSESSIONENDLOCATIONX",
-  "POSSESSIONENDLOCATIONY",
-  "POSSESSIONEVENTSNUMBER",
-  "POSSESSIONEVENTINDEX"
+  "POSSESSIONENDLOCATIONY"
 )
+
 
 variables <- as.formula(paste("SHOTISGOAL ~", paste(x_variables, collapse = " + ")))
 
@@ -220,6 +230,43 @@ vif(glm_train)
 
 
 ##### Random Forest #####
+# tuning
+ctrl <- trainControl(method = "cv", 
+                     number = 5, 
+                     verboseIter = TRUE)  # <- viser progress i konsollen)
+tuned_rf <- train(variables, 
+                  data = train_data_clean, 
+                  method = "rf", 
+                  trControl = ctrl, 
+                  tuneGrid = expand.grid(mtry = c(2, 4, 6)))
+
+best_mtry <- tuned_rf$results[1,1]
+print(best_mtry)
+
+# tree depth
+trees <- c(10, 100, 500, 1000, 2000, 5000, 10000)
+auc_df <- data.frame(ntree = trees, AUC = NA)
+
+for (i in seq_along(trees)) {
+  cat("Training Random Forest with", trees[i], "trees...\n")
+  
+  rf_model <- randomForest(variables, 
+                           data = train_data, 
+                           ntree = trees[i], 
+                           mtry = 2)
+  
+  probs <- predict(rf_model, test_data, type = "prob")[, "1"]
+  
+  roc_obj <- roc(test_data$SHOTISGOAL, probs, quiet = TRUE)
+  auc_df$AUC[i] <- auc(roc_obj)
+  
+  cat("Done. AUC:", round(auc_df$AUC[i], 4), "\n\n")
+}
+# print plot
+rf_ntree_loop
+
+
+# rf
 rf_model <- randomForest(variables, 
                          data = train_data,
                          ntree = 10000,      
@@ -228,6 +275,37 @@ rf_model <- randomForest(variables,
 varImpPlot(rf_model)
 # Forudsig sandsynligheder fra modellen
 rf_test <- predict(rf_model, test_data, type = "prob")[, "1"]
+
+##### XGBoost #####
+# xgboost vil have det i matrix, og y som numeric
+x_train <- model.matrix(variables, data = train_data_clean)[, -1]
+y_train <- as.numeric(as.character(train_data_clean$SHOTISGOAL))
+
+x_test <- model.matrix(variables, data = test_data_clean)[, -1]
+y_test <- as.numeric(as.character(test_data_clean$SHOTISGOAL))
+
+# Lav DMatrix
+dtrain <- xgb.DMatrix(data = x_train, label = y_train)
+dtest <- xgb.DMatrix(data = x_test, label = y_test)
+
+# Træn en helt simpel model
+xgb_model <- xgboost(data = dtrain,
+                     objective = "binary:logistic",
+                     eval_metric = "auc",
+                     nrounds = 100,
+                     verbose = 1)
+
+# Predict og beregn AUC
+xgb_pred <- predict(xgb_model, x_test)
+xgb_auc <- pROC::auc(y_test, xgb_pred)
+
+cat("AUC for XGBoost:", round(xgb_auc, 4), "\n")
+
+
+##### WyScout #####
+roc_wyscout <- roc(test_data$SHOTISGOAL, test_data$SHOTXG)
+auc_wyscout <- auc(roc_wyscout)
+print(auc_wyscout)
 
 
 ###### Best Threshold F1 er bedre ######
@@ -292,11 +370,8 @@ rf_preds <- ifelse(rf_test > best_threshold, "1", "0")
 rf_confusion <- confusionMatrix(as.factor(rf_preds), as.factor(test_data$SHOTISGOAL))
 rf_confusion
 
-# for total
-allshotevents$xG_RF <- predict(rf_model, allshotevents, type = "prob")[, "1"]
 
-
-
+#### Evaluating ####
 xG_Comparison <- allshotevents %>%
   select(EVENT_WYID,LOCATIONX,LOCATIONY,SHOTISGOAL,SHOTXG,xG_RF) %>%
   as.data.frame()
