@@ -102,11 +102,11 @@ score_matrix <- expand.grid(
 
 # Beregn xP for hold 1
 #dpois laver selv poisson-fordeling
-xp1 <- sum(
-  dpois(score_matrix$team_goals, match_xg$xG[1]) *
-    dpois(score_matrix$opp_goals, match_xg$xG[2]) *
-    ifelse(score_matrix$team_goals > score_matrix$opp_goals, 3,
-           ifelse(score_matrix$team_goals == score_matrix$opp_goals, 1, 0))
+xp1 <- sum( # summerer expected points over alle mulige scorekombinationer
+  dpois(score_matrix$team_goals, match_xg$xG[1]) * # sandsynlighed for at holdet scorer x mål
+    dpois(score_matrix$opp_goals, match_xg$xG[2]) * # sandsynlighed for at modstanderen scorer y mål
+    ifelse(score_matrix$team_goals > score_matrix$opp_goals, 3, # 3 point hvis sejr
+           ifelse(score_matrix$team_goals == score_matrix$opp_goals, 1, 0)) # 1 ved uafgjort, ellers 0
 )
 
 # Og hold 2
