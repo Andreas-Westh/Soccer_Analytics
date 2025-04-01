@@ -63,8 +63,11 @@ allteams_raw_unique <- allteams_raw %>%
   distinct(TEAM_WYID, .keep_all = TRUE)
 
 
-allshotsbrøndby <- left_join(allshotevents, allteams_raw_unique[, c("TEAM_WYID", "TEAMNAME")], by = "TEAM_WYID") %>% 
-  filter(TEAMNAME == "Brøndby")
+allshotevents <- left_join(allshotevents, allteams_raw_unique[, c("TEAM_WYID", "TEAMNAME")], by = "TEAM_WYID")
+
+all_brøndby_matches <- allshotevents %>% filter(TEAMNAME == "Brøndby") %>% 
+  distinct(MATCH_WYID.x, .keep_all = TRUE) %>% select(MATCH_WYID.x)
+
 
 #### Test with a single match ####
 shots_per_match <- allshotsbrøndby %>%
@@ -75,8 +78,45 @@ shots_per_match <- allshotsbrøndby %>%
   )
 mean(shots_per_match$shot_count)
 
-single_match <-  allshotsbrøndby %>%
-  select(MATCH_WYID.x, SHOTISGOAL, SHOTXG,EVENT_WYID) %>% 
+allshotmatches_brøndby <-  allshotevents %>%
+  select(MATCH_WYID.x, SHOTISGOAL, SHOTXG,EVENT_WYID, TEAMNAME) %>% 
+  filter(MATCH_WYID.x %in% all_brøndby_matches$MATCH_WYID.x)
+
+single_match <- allshotmatches_brøndby %>% 
   filter(MATCH_WYID.x == "5466028")
 
 
+# test
+match_xg <- single_match %>%
+  group_by(TEAMNAME) %>%
+  summarise(xG = sum(SHOTXG)) %>%
+  arrange(desc(xG))
+
+
+#Poisson-model: grid over mulige mål 0-5
+score_matrix <- expand.grid(
+  team_goals = 0:5,
+  opp_goals = 0:5
+)
+
+
+# Beregn xP for hold 1
+#dpois laver selv poisson-fordeling
+xp1 <- sum(
+  dpois(score_matrix$team_goals, match_xg$xG[1]) *
+    dpois(score_matrix$opp_goals, match_xg$xG[2]) *
+    ifelse(score_matrix$team_goals > score_matrix$opp_goals, 3,
+           ifelse(score_matrix$team_goals == score_matrix$opp_goals, 1, 0))
+)
+
+# Og hold 2
+xp2 <- sum(
+  dpois(score_matrix$team_goals, match_xg$xG[2]) *
+    dpois(score_matrix$opp_goals, match_xg$xG[1]) *
+    ifelse(score_matrix$team_goals > score_matrix$opp_goals, 3,
+           ifelse(score_matrix$team_goals == score_matrix$opp_goals, 1, 0))
+)
+
+# Resultat
+expected_points <- match_xg %>%
+  mutate(xP = round(c(xp1, xp2), 3))
