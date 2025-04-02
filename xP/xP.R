@@ -120,3 +120,50 @@ xp2 <- sum(
 # Resultat
 expected_points <- match_xg %>%
   mutate(xP = round(c(xp1, xp2), 3))
+
+
+
+#### Loop ####
+xp_results <- data.frame()
+
+brøndby_matches <- all_brøndby_matches$MATCH_WYID.x
+
+for (match_id in brøndby_matches) {
+  print(match_id)
+  match_data <- allshotmatches_brøndby %>% filter(MATCH_WYID.x == match_id)
+  
+  # sum xG per match per team
+  match_xg <- match_data %>% 
+    group_by(TEAMNAME) %>%
+    summarise(xG = sum(SHOTXG)) %>%
+    arrange(desc(TEAMNAME == "Brøndby"))
+  
+  # make the score matrix
+  score_matrix <- expand.grid(
+    team_goals = 0:5,
+    opp_goals = 0:5
+  )
+  
+  xP_brøndby <- sum(
+    dpois(score_matrix$team_goals, match_xg$xG[1]) *
+      dpois(score_matrix$opp_goals, match_xg$xG[2]) *
+      ifelse(score_matrix$team_goals > score_matrix$opp_goals, 3,
+             ifelse(score_matrix$team_goals == score_matrix$opp_goals, 1, 0))
+  )
+  
+  xP_opponent <- sum(
+    dpois(score_matrix$opp_goals, match_xg$xG[2]) *
+      dpois(score_matrix$team_goals, match_xg$xG[1]) *
+      ifelse(score_matrix$opp_goals > score_matrix$team_goals, 3,
+             ifelse(score_matrix$opp_goals == score_matrix$team_goals, 1, 0))
+  )
+  
+  xp_results <- rbind(xp_results, data.frame(
+    Brøndby = "Brøndby",
+    Brøndby_xP = round(xP_brøndby, 3),
+    Modstander = match_xg$TEAMNAME[2],
+    Modstander_xP = round(xP_opponent, 3),
+    MATCH_WYID = match_id
+  ))
+  
+}
