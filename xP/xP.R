@@ -167,3 +167,6 @@ for (match_id in brøndby_matches) {
   ))
   
 }
+
+xp_sum <- xp_results %>% 
+  summarise(total_points = sum(Brøndby_xP))
