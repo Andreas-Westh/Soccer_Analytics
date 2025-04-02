@@ -130,34 +130,45 @@ brøndby_matches <- all_brøndby_matches$MATCH_WYID.x
 
 for (match_id in brøndby_matches) {
   print(match_id)
-  match_data <- allshotmatches_brøndby %>% filter(MATCH_WYID.x == match_id)
   
-  # sum xG per match per team
+  match_data <- allshotmatches_brøndby %>% 
+    filter(MATCH_WYID.x == match_id)
+  
+  #summere xP per kamp per hold
   match_xg <- match_data %>% 
     group_by(TEAMNAME) %>%
     summarise(xG = sum(SHOTXG)) %>%
     arrange(desc(TEAMNAME == "Brøndby"))
   
-  # make the score matrix
+  # lav vores matrix
   score_matrix <- expand.grid(
     team_goals = 0:5,
     opp_goals = 0:5
   )
   
-  xP_brøndby <- sum(
-    dpois(score_matrix$team_goals, match_xg$xG[1]) *
-      dpois(score_matrix$opp_goals, match_xg$xG[2]) *
-      ifelse(score_matrix$team_goals > score_matrix$opp_goals, 3,
-             ifelse(score_matrix$team_goals == score_matrix$opp_goals, 1, 0))
-  )
+  #sandsynligheder for Brøndby
+  probs <- dpois(score_matrix$team_goals, match_xg$xG[1]) * #dpois laver selv poisson-fordeling
+    dpois(score_matrix$opp_goals, match_xg$xG[2])
   
-  xP_opponent <- sum(
-    dpois(score_matrix$opp_goals, match_xg$xG[2]) *
-      dpois(score_matrix$team_goals, match_xg$xG[1]) *
-      ifelse(score_matrix$opp_goals > score_matrix$team_goals, 3,
-             ifelse(score_matrix$opp_goals == score_matrix$team_goals, 1, 0))
-  )
+  p_win  <- sum(probs[score_matrix$team_goals > score_matrix$opp_goals])
+  p_draw <- sum(probs[score_matrix$team_goals == score_matrix$opp_goals])
+  p_loss <- sum(probs[score_matrix$team_goals < score_matrix$opp_goals])
   
+  #xP formel
+  xP_brøndby <- 3 * p_win + 1 * p_draw + 0 * p_loss
+  
+  # sandsynligheder for modstanderen
+  probs_opp <- dpois(score_matrix$opp_goals, match_xg$xG[2]) *
+    dpois(score_matrix$team_goals, match_xg$xG[1])
+  
+  p_win_opp  <- sum(probs_opp[score_matrix$opp_goals > score_matrix$team_goals])
+  p_draw_opp <- sum(probs_opp[score_matrix$opp_goals == score_matrix$team_goals])
+  p_loss_opp <- sum(probs_opp[score_matrix$opp_goals < score_matrix$team_goals])
+  
+  #xP formel (igen :3)
+  xP_opponent <- 3 * p_win_opp + 1 * p_draw_opp + 0 * p_loss_opp
+  
+  # Smæk det ind i en df
   xp_results <- rbind(xp_results, data.frame(
     Brøndby = "Brøndby",
     Brøndby_xP = round(xP_brøndby, 3),
@@ -165,7 +176,6 @@ for (match_id in brøndby_matches) {
     Modstander_xP = round(xP_opponent, 3),
     MATCH_WYID = match_id
   ))
-  
 }
 
 xp_sum <- xp_results %>% 
