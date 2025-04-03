@@ -66,20 +66,6 @@ allshotevents <- allshotevents %>%
 
 allshotevents$SHOTISGOAL <- as.factor(allshotevents$SHOTISGOAL)
 
-# husk shots are ikke frispark, selvom osv
-
-
-# variabler
-# kan det være muligt at beregne en spillers ELO?
-
-
-# Forskellige modeller der kan bruges:
-# Decision tree
-# Random forest
-# glm
-
-
-
 
 #### SPLITTING DATA ####
 set.seed(1980) # for reproducablility
@@ -97,45 +83,11 @@ round(prop.table(table(test_data$SHOTISGOAL)), 4)
 
 
 #### beskrivende statistik ####
-
-##### Simple boruta #####
-boruta_result <- Boruta(SHOTISGOAL ~ x_variables, data = train_data_clean, doTrace = 1,)
-plot(boruta_result, las = 2, cex.axis = 0.7)
-
-final_vars <- getSelectedAttributes(boruta_result, withTentative = FALSE)
-importance_df <- attStats(boruta_result)
-boruta_df <- importance_df[order(-importance_df$meanImp), ]
-max_shadow <- max(importance_df[grepl("shadow", rownames(importance_df)), "meanImp"])
-
-# Filter through shadows and 100th procentile
-
-#### SET VIARIABLES HERE!! ####
-# fjerne nogle af de mange
-#x_variables <- c(
-#  "shot_angle", 
-#  "shot_distance", 
-#  "POSSESSIONDURATION",
-#  "SHOTBODYPART",
-#  "POSSESSIONENDLOCATIONX",
-#  "POSSESSIONENDLOCATIONY",
-#  "POSSESSIONEVENTSNUMBER",
-#  "POSSESSIONEVENTINDEX"
-#)
-
-x_variables <- c(
-  "shot_angle", 
-  "shot_distance", 
-  "SHOTBODYPART",
-  "POSSESSIONENDLOCATIONX",
-  "POSSESSIONENDLOCATIONY"
-)
-
 x_variables <- c(
   "shot_angle", 
   "shot_distance", 
   "SHOTBODYPART"
 )
-
 
 
 variables <- as.formula(paste("SHOTISGOAL ~", paste(x_variables, collapse = " + ")))
@@ -153,9 +105,10 @@ train_index_clean <- createDataPartition(
 train_data_clean <- allshotevents_clean[train_index_clean, ]
 test_data_clean  <- allshotevents_clean[-train_index_clean, ]
 
+round(prop.table(table(train_data_clean$SHOTISGOAL)),4)
+round(prop.table(table(test_data_clean$SHOTISGOAL)), 4)
 
 #### x-variables and influence on y ####
-
 #### Data Exploration ####
 pair_data <- allshotevents %>%
   select(all_of(x_variables), SHOTISGOAL)
@@ -179,54 +132,6 @@ ggpairs(
 
 #### algos ####
 ##### GLM #####
-# Univariative GLM Loop
-# Initialiser data frame til resultater
-glm_result <- data.frame(
-  x_variable = character(),
-  coefficient = numeric(),
-  p_value = numeric(),
-  p_stars = character()
-)
-
-# Funktion til at tildele signifikansstjerner
-get_significance_stars <- function(p) {
-  if (p < 0.001) {
-    return("***")
-  } else if (p < 0.01) {
-    return("**")
-  } else if (p < 0.05) {
-    return("*")
-  } else if (p < 0.1) {
-    return(".")
-  } else {
-    return("")
-  }
-}
-
-# Loop gennem alle forklarende variable
-for (i in x_variables) {
-  formula_glm <- as.formula(paste("SHOTISGOAL ~", i))
-  glm_model <- glm(formula_glm, data = train_data, family = "binomial")
-  
-  # Udtræk koefficient og p-værdi for den pågældende variabel
-  glm_coeff <- summary(glm_model)$coefficients[2,1]  # Koefficient
-  glm_pval <- summary(glm_model)$coefficients[2,4]  # P-værdi
-  glm_stars <- get_significance_stars(glm_pval)
-  
-  # Gem resultater i data frame
-  tmp_glm <- data.frame(
-    x_variable = i,
-    coefficient = as.numeric(glm_coeff),
-    p_value = as.numeric(glm_pval),
-    p_stars = glm_stars
-  )
-  
-  glm_result <- rbind(glm_result, tmp_glm)
-}
-
-glm_result$coefficient <- round(glm_result$coefficient,2)
-glm_result$p_value <- round(glm_result$p_value,4)
-
 # Full multivariate GLM
 glm_train <- glm(variables, 
                  data = train_data_clean, 
@@ -252,51 +157,15 @@ cat("AUC for enkelt beslutningstræ:", round(tree_auc, 4), "\n")
 
 
 ##### Random Forest #####
-# tuning
-ctrl <- trainControl(method = "cv", 
-                     number = 5, 
-                     verboseIter = TRUE)  # <- viser progress i konsollen)
-tuned_rf <- train(variables, 
-                  data = train_data_clean, 
-                  method = "rf", 
-                  trControl = ctrl, 
-                  tuneGrid = expand.grid(mtry = c(2, 4, 6)))
-
-best_mtry <- tuned_rf$results[1,1]
-print(best_mtry)
-
-# tree depth
-trees <- c(10, 100, 500, 1000, 2000, 5000, 10000)
-auc_df <- data.frame(ntree = trees, AUC = NA)
-
-for (i in seq_along(trees)) {
-  set.seed(1980)
-  cat("Training Random Forest with", trees[i], "trees...\n")
-  
-  rf_model <- randomForest(variables, 
-                           data = train_data_clean, 
-                           ntree = trees[i], 
-                           mtry = 2)
-  
-  probs <- predict(rf_model, test_data_clean, type = "prob")[, "1"]
-  
-  roc_obj <- roc(test_data_clean$SHOTISGOAL, probs, quiet = TRUE)
-  auc_df$AUC[i] <- auc(roc_obj)
-  
-  cat("Done. AUC:", round(auc_df$AUC[i], 4), "\n\n")
-}
-best_trees <- auc_df$ntree[which.max(auc_df$AUC)]
-print(best_trees)
-# print plot
-rf_ntree_loop
-
-
 # rf
 rf_model_final <- randomForest(
   formula = variables,
   data = train_data_clean,
-  ntree = best_trees,
-  mtry = best_mtry,
+  ntree = 5000,
+  mtry = floor(sqrt(length(x_variables))),
+  #mtry = length(x_variables),
+  classwt = c("0" = 1, "1" = 8),  # cirka vægtet omvendt af fordelingen
+  #sampsize = c("0" = 300, "1" = 300),  # equal number from each class pr træ
   importance = TRUE
 )
 
@@ -304,7 +173,7 @@ varImpPlot(rf_model)
 # Forudsig sandsynligheder fra modellen
 rf_test <- predict(rf_model_final, test_data_clean, type = "prob")[, "1"]
 rf_auc <- auc(test_data_clean$SHOTISGOAL, rf_test)
-cat("AUC for Random Forest:", round(rf_auc, 4), "\n")
+cat("AUC for Random Forest (sampsize):", round(rf_auc, 4), "\n")
 
 ##### XGBoost #####
 # xgboost vil have det i matrix, og y som numeric
