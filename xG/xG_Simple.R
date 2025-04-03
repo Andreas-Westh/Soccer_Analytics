@@ -44,8 +44,8 @@ allshotevents <- allshotevents_filtered
 
 #feature engineering
 # length
-allshotevents$shot_distance <- sqrt((100 - allshotevents$POSSESSIONENDLOCATIONX)^2 + 
-                                      (50 - allshotevents$POSSESSIONENDLOCATIONY)^2)
+allshotevents$shot_distance <- sqrt((100 - allshotevents$LOCATIONX)^2 + 
+                                      (50 - allshotevents$LOCATIONY)^2)
 
 #vinkel
 # define goal parameters
@@ -164,8 +164,8 @@ rf_model_final <- randomForest(
   ntree = 5000,
   mtry = floor(sqrt(length(x_variables))),
   #mtry = length(x_variables),
-  classwt = c("0" = 1, "1" = 8),  # cirka vægtet omvendt af fordelingen
-  #sampsize = c("0" = 300, "1" = 300),  # equal number from each class pr træ
+  #classwt = c("0" = 1, "1" = 8),  # cirka vægtet omvendt af fordelingen
+  sampsize = c("0" = 300, "1" = 300),  # equal number from each class pr træ
   importance = TRUE
 )
 

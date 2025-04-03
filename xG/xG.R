@@ -297,6 +297,9 @@ rf_model_final <- randomForest(
   data = train_data_clean,
   ntree = best_trees,
   mtry = best_mtry,
+  #mtry = floor(sqrt(length(x_variables))),
+  #classwt = c("0" = 1, "1" = 8),  # cirka vægtet omvendt af fordelingen
+  sampsize = c("0" = 300, "1" = 300),  # equal number from each class pr træ
   importance = TRUE
 )
 
@@ -407,6 +410,34 @@ auc_wyscout <- auc(roc_wyscout)
 print(auc_wyscout)
 
 
+
+###### Make the predicts ######
+best_threshold <- 0.3
+print(best_threshold)
+
+rf_preds <- ifelse(rf_test > best_threshold, "1", "0")
+
+# for test
+rf_confusion <- confusionMatrix(xgb_pred, test_data_clean$SHOTISGOAL)
+rf_confusion
+
+
+#### Evaluating ####
+xG_Comparison <- allshotevents %>%
+  select(EVENT_WYID,LOCATIONX,LOCATIONY,SHOTISGOAL,SHOTXG,xG_RF) %>%
+  as.data.frame()
+
+
+
+
+
+
+
+
+
+
+
+#### Extras and other things probs not needed ####
 ###### Best Threshold F1 måske ikke relevant? ######
 thresholds <- seq(0.1, 1.0, by = 0.001)
 
@@ -455,25 +486,3 @@ for (i in seq_along(thresholds)) {
 }
 
 # Find bedste threshold baseret på F1
-best_f1 <- f1_results[which.max(f1_results$F1), ]
-print(best_f1)
-
-
-###### Make the predicts ######
-best_threshold <- f1_results$Threshold[which.max(f1_results$F1)]
-print(best_threshold)
-
-rf_preds <- ifelse(rf_test > best_threshold, "1", "0")
-
-# for test
-rf_confusion <- confusionMatrix(as.factor(rf_preds), as.factor(test_data$SHOTISGOAL))
-rf_confusion
-
-
-#### Evaluating ####
-xG_Comparison <- allshotevents %>%
-  select(EVENT_WYID,LOCATIONX,LOCATIONY,SHOTISGOAL,SHOTXG,xG_RF) %>%
-  as.data.frame()
-
-
-
