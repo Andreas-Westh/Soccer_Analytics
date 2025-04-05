@@ -9,6 +9,7 @@ library(Boruta)
 library(xgboost)
 library(rpart)
 library(rpart.plot)
+library(zoo)
 
 #### Data Retrievel ####
 readRenviron("data/.Renviron")
@@ -103,6 +104,18 @@ allshotevents <- allshotevents %>%
   left_join(all_teams_2324 %>% select(TEAM_WYID, TEAMNAME, Team_Ranking),
             by = "TEAM_WYID")
 
+allshotevents <- allshotevents %>%
+  left_join(matched_df %>% select(PLAYER_WYID, overall, potential, SHORTNAME),
+            by = "PLAYER_WYID")
+
+allshotevents <- allshotevents %>%
+  distinct(EVENT_WYID, .keep_all = TRUE)
+
+# recent preformance / hothand
+#no fucking clue
+
+
+
 #### SPLITTING DATA ####
 set.seed(1980) # for reproducablility
 cv_folds <- trainControl(method = "cv", number = 5)
@@ -128,7 +141,7 @@ round(prop.table(table(test_data$SHOTISGOAL)), 4)
 
 
 ##### Simple boruta #####
-boruta_result <- Boruta(SHOTISGOAL ~ x_variables, data = train_data_clean, doTrace = 1,)
+boruta_result <- Boruta(variables, data = train_data_clean, doTrace = 1,)
 plot(boruta_result, las = 2, cex.axis = 0.7)
 
 final_vars <- getSelectedAttributes(boruta_result, withTentative = FALSE)
@@ -170,7 +183,9 @@ x_variables <- c(
   "SHOTBODYPART.head_or_other",
   "SHOTBODYPART.left_foot",
   "SHOTBODYPART.right_foot",
-  "Team_Ranking"
+  "Team_Ranking",
+  "overall",
+  "potential"
 )
 
 
@@ -296,6 +311,8 @@ cat("AUC for enkelt beslutningstræ:", round(tree_auc, 4), "\n")
 
 
 ##### Random Forest #####
+colSums(is.na(train_data_yn))
+
 # tuning
 ctrl <- trainControl(method = "cv", 
                      number = 5, 
@@ -378,11 +395,11 @@ test_data_yn$SHOTISGOAL <- factor(test_data_yn$SHOTISGOAL,
 grid_tune <- expand.grid(
   nrounds = c(500, 1000),          
   max_depth = c(2, 4),             
-  eta = c(0.005, 0.01, 0.05),              
+  eta = c(0.005, 0.01),              
   gamma = c(0.25, 0.5, 0.75),         
-  colsample_bytree = c(0.8, 1.0),   
+  colsample_bytree = c(0.5, 0.8),   
   min_child_weight = c(2, 3),     
-  subsample = c(0.5, 0.75, 1.0)         
+  subsample = c(0.25, 0.5)         
 )
 
 train_control <- trainControl(method = "cv",
