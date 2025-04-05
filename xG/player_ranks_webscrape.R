@@ -1,6 +1,8 @@
 library(rvest)
 library(httr)
 library(tidyverse)
+library(fuzzyjoin)
+library(stringr)
 
 # https://www.fifaindex.com/players/?gender=0&league=1&order=desc
 readRenviron("data/.Renviron")
@@ -106,7 +108,38 @@ allplayers_2324 <- allplayers_raw %>% filter(SEASON_WYID == "188945")
 
 
 # try and standadize names
+#makinbg a full names column
+allplayers_2324 <- allplayers_2324 %>%
+  mutate(
+    fullname = str_trim(paste(FIRSTNAME, MIDDLENAME, LASTNAME)),
+    fullname = str_replace_all(fullname, "NA", ""),     # remove literal NAs
+    fullname = str_squish(fullname),                    # remove double spaces
+    fullname = tolower(fullname)                        # lowercase for matching
+  )
 
-
+# make lower case
+players_df <- players_df %>%
+  mutate(
+    fullname = tolower(str_squish(name))
+  )
 
 # merge
+# fuzzy to try and find best match
+matched_df <- stringdist_left_join(
+  players_df,             # start from players_df
+  allplayers_2324,        # join from allplayers_2324
+  by = "fullname",
+  method = "jw",          # Jaro-Winkler (good for names)
+  max_dist = 0.25,        # lower = stricter, higher = looser
+  distance_col = "match_score"
+)
+
+# identify NAs
+unmatched_players <- matched_df %>% 
+  filter(is.na(PLAYER_WYID)) %>% select(PLAYER_WYID, fullname.x)
+
+count(unmatched_players)
+head(unmatched_players, 10)
+
+
+
