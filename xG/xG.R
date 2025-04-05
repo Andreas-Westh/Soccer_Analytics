@@ -161,8 +161,7 @@ x_variables <- c(
   "shot_angle", 
   "shot_distance", 
   "SHOTBODYPART",
-  "POSSESSIONENDLOCATIONX",
-  "POSSESSIONENDLOCATIONY"
+  "Team_Ranking"
 )
 
 x_variables <- c(
@@ -304,13 +303,13 @@ ctrl <- trainControl(method = "cv",
                      summaryFunction = twoClassSummary, 
                      verboseIter = TRUE)  # <- viser progress i konsollen)
 tuned_rf <- train(variables, 
-                  data = train_data_clean, 
+                  data = train_data_yn, 
                   method = "rf", 
                   metric = "ROC",
                   trControl = ctrl, 
                   tuneGrid = expand.grid(mtry = 1:length(x_variables)))
 
-best_mtry <- tuned_rf$results[1,1]
+best_mtry <- tuned_rf$bestTune[1,1]
 print(best_mtry)
 
 # tree depth
@@ -321,15 +320,17 @@ for (i in seq_along(trees)) {
   set.seed(1980)
   cat("Training Random Forest with", trees[i], "trees...\n")
   
-  rf_model <- randomForest(variables, 
-                           data = train_data_clean, 
-                           ntree = trees[i], 
-                           mtry = 2,
-                           sampsize = c("0" = 300, "1" = 300))
+  rf_model <- train(variables, 
+                    data = train_data_yn, 
+                    ntree = trees[i], 
+                    method = "rf", 
+                    metric = "ROC",
+                    trControl = ctrl,
+                    tuneGrid = data.frame(mtry = best_mtry))
   
-  probs <- predict(rf_model, test_data_clean, type = "prob")[, "1"]
+  probs <- predict(rf_model, test_data_yn, type = "prob")[, "yes"]
   
-  roc_obj <- roc(test_data_clean$SHOTISGOAL, probs, quiet = TRUE)
+  roc_obj <- roc(test_data_yn$SHOTISGOAL, probs, quiet = TRUE)
   auc_df$AUC[i] <- auc(roc_obj)
   
   cat("Done. AUC:", round(auc_df$AUC[i], 4), "\n\n")
@@ -341,21 +342,26 @@ rf_ntree_loop
 
 
 # rf
-rf_model_final <- randomForest(
-  formula = variables,
-  data = train_data_clean,
+rf_model_final <- train(
+  variables,
+  data = train_data_yn,
+  method = "rf",
+  metric = "ROC",
+  trControl = trainControl(
+    method = "none",               # <- no CV for final fit
+    classProbs = TRUE,
+    summaryFunction = twoClassSummary
+  ),
+  tuneGrid = data.frame(mtry = best_mtry),
   ntree = best_trees,
-  mtry = best_mtry,
-  #mtry = floor(sqrt(length(x_variables))),
-  #classwt = c("0" = 1, "1" = 8),  # cirka vægtet omvendt af fordelingen
-  sampsize = c("0" = 300, "1" = 300),  # equal number from each class pr træ
+  sampsize = c("no" = 300, "yes" = 300),
   importance = TRUE
 )
 
 varImpPlot(rf_model)
 # Forudsig sandsynligheder fra modellen
-rf_test <- predict(rf_model_final, test_data_clean, type = "prob")[, "1"]
-rf_auc <- auc(test_data_clean$SHOTISGOAL, rf_test)
+rf_test <- predict(rf_model_final, test_data_yn, type = "prob")[, "yes"]
+rf_auc <- auc(test_data_yn$SHOTISGOAL, rf_test)
 cat("AUC for Random Forest:", round(rf_auc, 4), "\n")
 
 ##### XGBoost #####
@@ -432,12 +438,12 @@ print(auc_wyscout)
 
 ###### Make the predicts ######
 best_threshold <- 0.35
-print(best_threshold)
-
-rf_preds <- ifelse(rf_test > best_threshold, "1", "0")
+xgb_class <- ifelse(xgb_pred > best_threshold, "yes", "no")
+xgb_class <- factor(xgb_class, levels = c("no", "yes"))
+actual <- factor(test_data_yn$SHOTISGOAL, levels = c("no", "yes"))
 
 # for test
-rf_confusion <- confusionMatrix(xgb_pred, test_data_clean)
+rf_confusion <- confusionMatrix(xgb_class, actual)
 rf_confusion
 
 
