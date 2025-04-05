@@ -134,12 +134,16 @@ matched_df <- stringdist_left_join(
   distance_col = "match_score"
 )
 
+matched_df$overall <- as.integer(matched_df$overall)
+matched_df$potential <- as.integer(matched_df$potential)
+
 # identify NAs
 unmatched_players <- matched_df %>% 
   filter(is.na(PLAYER_WYID)) %>% select(PLAYER_WYID, fullname.x)
 
 count(unmatched_players)
 head(unmatched_players, 10)
+
 
 
 
