@@ -446,6 +446,8 @@ xgb_pred <- predict(xgb_model, test_data_yn, type = "prob")[, "yes"]
 xgb_auc <- auc(test_data_yn$SHOTISGOAL, xgb_pred)
 cat("Endelig AUC for tuned XGBoost:", round(xgb_auc, 4), "\n")
 
+
+
 ##### WyScout #####
 roc_wyscout <- roc(test_data$SHOTISGOAL, test_data$SHOTXG)
 auc_wyscout <- auc(roc_wyscout)
