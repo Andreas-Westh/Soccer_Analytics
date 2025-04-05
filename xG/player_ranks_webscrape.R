@@ -1,19 +1,11 @@
 library(rvest)
 library(httr)
 library(tidyverse)
-library(RSelenium)
 
 # https://www.fifaindex.com/players/?gender=0&league=1&order=desc
 readRenviron("data/.Renviron")
 cookie <- Sys.getenv("cookie")
 user_agent <- Sys.getenv("agent")
-
-# get cookies with RSelenium
-rD <- rsDriver(browser = "firefox")
-remDr <- rD$client
-remDr$navigate("https://www.fifaindex.com/players/fifa24_599/?page=0&gender=0&league=1&order=desc")
-cookies <- remDr$getAllCookies()
-cookies
 
 url <-paste0("https://www.fifaindex.com/players/fifa24_599/?page=","&gender=0&league=1&order=desc")
 headers <- c(
@@ -22,7 +14,12 @@ headers <- c(
   "Accept-Language" = "en-US,en;q=0.9",
   "Accept" = "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
   "Referer" = "https://www.fifaindex.com/",
-  "Connection" = "keep-alive"
+  "Connection" = "keep-alive",
+  "Upgrade-Insecure-Requests" = "1",
+  "Sec-Fetch-Dest" = "document",
+  "Sec-Fetch-Mode" = "navigate",
+  "Sec-Fetch-Site" = "same-origin",
+  "Sec-Fetch-User" = "?1"
 )
 
 response <- GET(url, add_headers(.headers = headers))
@@ -43,7 +40,7 @@ players_df <- data.frame()
 
 for (page in 1:last_page){
   Sys.sleep(1)
-  cat(paste0("now scraping for page: ",page, " , out of: ",last_page))
+  cat(paste0("now scraping for page: ",page, " , out of: ",last_page,"\n"))
   url_loop <- paste0("https://www.fifaindex.com/players/fifa24_599/?page=",page,"&gender=0&league=1&order=desc")
   headers <- c(
     "User-Agent" = user_agent,
@@ -51,10 +48,15 @@ for (page in 1:last_page){
     "Accept-Language" = "en-US,en;q=0.9",
     "Accept" = "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
     "Referer" = "https://www.fifaindex.com/",
-    "Connection" = "keep-alive"
+    "Connection" = "keep-alive",
+    "Upgrade-Insecure-Requests" = "1",
+    "Sec-Fetch-Dest" = "document",
+    "Sec-Fetch-Mode" = "navigate",
+    "Sec-Fetch-Site" = "same-origin",
+    "Sec-Fetch-User" = "?1"
   )
   
-  response <- GET(url, add_headers(.headers = headers))
+  response <- GET(url_loop, add_headers(.headers = headers))
   response$status_code
   page <- read_html(response)
   
@@ -92,3 +94,19 @@ for (page in 1:last_page){
       players_df <- rbind(players_df, player)
   }
 }
+
+#saveRDS(players_df, "xG/Scraped_Data/players_fifaindex.RDS")
+
+#clean
+players_df$team <- gsub(" FIFA 24","", players_df$team)
+
+# take only current season from allplayers
+allplayers_2324 <- allplayers_raw %>% filter(SEASON_WYID == "188945")
+
+
+
+# try and standadize names
+
+
+
+# merge
