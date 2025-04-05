@@ -150,6 +150,13 @@ max_shadow <- max(importance_df[grepl("shadow", rownames(importance_df)), "meanI
 #  "POSSESSIONEVENTINDEX"
 #)
 
+#one-hot encoding
+allshotevents$SHOTBODYPART <- as.factor(allshotevents$SHOTBODYPART)
+onehots <- dummyVars(~ SHOTBODYPART, data = allshotevents)
+dummy_data <- predict(onehots, newdata = allshotevents)
+allshotevents <- cbind(allshotevents, dummy_data)
+
+
 x_variables <- c(
   "shot_angle", 
   "shot_distance", 
@@ -161,7 +168,9 @@ x_variables <- c(
 x_variables <- c(
   "shot_angle", 
   "shot_distance", 
-  "SHOTBODYPART",
+  "SHOTBODYPART.head_or_other",
+  "SHOTBODYPART.left_foot",
+  "SHOTBODYPART.right_foot",
   "Team_Ranking"
 )
 
@@ -182,6 +191,13 @@ train_index_clean <- createDataPartition(
 train_data_clean <- allshotevents_clean[train_index_clean, ]
 test_data_clean  <- allshotevents_clean[-train_index_clean, ]
 
+train_data_clean <- train_data_clean %>% 
+  select(SHOTISGOAL, everything())
+test_data_clean <- test_data_clean %>% 
+  select(SHOTISGOAL, everything())
+
+round(prop.table(table(train_data_clean$SHOTISGOAL)),4)
+round(prop.table(table(test_data_clean$SHOTISGOAL)), 4)
 
 #### x-variables and influence on y ####
 
@@ -284,12 +300,15 @@ cat("AUC for enkelt beslutningstræ:", round(tree_auc, 4), "\n")
 # tuning
 ctrl <- trainControl(method = "cv", 
                      number = 5, 
+                     classProbs = TRUE,                    
+                     summaryFunction = twoClassSummary, 
                      verboseIter = TRUE)  # <- viser progress i konsollen)
 tuned_rf <- train(variables, 
                   data = train_data_clean, 
                   method = "rf", 
+                  metric = "ROC",
                   trControl = ctrl, 
-                  tuneGrid = expand.grid(mtry = c(1, 2, 3, 4)))
+                  tuneGrid = expand.grid(mtry = 1:length(x_variables)))
 
 best_mtry <- tuned_rf$results[1,1]
 print(best_mtry)
@@ -340,6 +359,155 @@ rf_auc <- auc(test_data_clean$SHOTISGOAL, rf_test)
 cat("AUC for Random Forest:", round(rf_auc, 4), "\n")
 
 ##### XGBoost #####
+train_data_yn <- train_data_clean
+test_data_yn <- test_data_clean
+
+train_data_yn$SHOTISGOAL <- factor(train_data_yn$SHOTISGOAL,
+                                      levels = c(0, 1),
+                                      labels = c("no", "yes"))
+test_data_yn$SHOTISGOAL <- factor(test_data_yn$SHOTISGOAL,
+                                     levels = c(0, 1),
+                                     labels = c("no", "yes"))
+# https://youtu.be/qjeUhuvkbHY?si=-bYul2KuvoOnusPo&t=763
+grid_tune <- expand.grid(
+  nrounds = c(500, 1000),          
+  max_depth = c(2, 4),             
+  eta = c(0.005, 0.01, 0.05),              
+  gamma = c(0.25, 0.5, 0.75),         
+  colsample_bytree = c(0.8, 1.0),   
+  min_child_weight = c(2, 3),     
+  subsample = c(0.5, 0.75, 1.0)         
+)
+
+train_control <- trainControl(method = "cv",
+                              number=5,
+                              classProbs = TRUE,
+                              summaryFunction = twoClassSummary,
+                              verboseIter = TRUE,
+                              allowParallel = TRUE)
+xgb_tune <- train(set.seed(1980),
+                 x = train_data_yn[,-1],
+                  y = train_data_yn[,1],
+                  trControl = train_control,
+                  tuneGrid = grid_tune,
+                  method = "xgbTree",
+                  metric = "ROC",
+                  verbose = TRUE)
+
+xgb_tune$bestTune
+
+train_control <- trainControl(method = "none",
+                              classProbs = TRUE,
+                              summaryFunction = twoClassSummary,
+                              verboseIter = TRUE,
+                              allowParallel = TRUE)
+final_grid <- expand.grid(nrounds = xgb_tune$bestTune$nrounds,
+                          eta = xgb_tune$bestTune$eta,
+                          max_depth = xgb_tune$bestTune$max_depth,
+                          gamma = xgb_tune$bestTune$gamma,
+                          colsample_bytree = xgb_tune$bestTune$colsample_bytree,
+                          min_child_weight = xgb_tune$bestTune$min_child_weight,
+                          subsample = xgb_tune$bestTune$subsample)
+xgb_model <- train(set.seed(1980),
+                   x = train_data_yn[,-1],
+                   y = train_data_yn[,1],
+                   trControl = train_control,
+                   tuneGrid = final_grid,
+                   method = "xgbTree",
+                   metric = "ROC",
+                   verbose = TRUE
+                   )
+summary(predict(xgb_model, test_data_yn, type = "prob")[, "yes"])
+
+xgb_pred <- predict(xgb_model, test_data_yn, type = "prob")[, "yes"]
+xgb_auc <- auc(test_data_yn$SHOTISGOAL, xgb_pred)
+cat("Endelig AUC for tuned XGBoost:", round(xgb_auc, 4), "\n")
+
+##### WyScout #####
+roc_wyscout <- roc(test_data$SHOTISGOAL, test_data$SHOTXG)
+auc_wyscout <- auc(roc_wyscout)
+print(auc_wyscout)
+
+
+
+###### Make the predicts ######
+best_threshold <- 0.35
+print(best_threshold)
+
+rf_preds <- ifelse(rf_test > best_threshold, "1", "0")
+
+# for test
+rf_confusion <- confusionMatrix(xgb_pred, test_data_clean)
+rf_confusion
+
+
+#### Evaluating ####
+# test nye sæson
+
+xG_Comparison <- allshotevents %>%
+  select(EVENT_WYID,LOCATIONX,LOCATIONY,SHOTISGOAL,SHOTXG,xG_RF) %>%
+  as.data.frame()
+
+
+
+
+
+
+
+
+
+
+
+#### Extras and other things probs not needed ####
+###### Best Threshold F1 måske ikke relevant? ######
+thresholds <- seq(0.1, 1.0, by = 0.001)
+
+# Gem Accuracy for hver threshold
+#
+#
+#
+# HUSK AT SE NOGET OM, HVAD DER ER REALTISTISK FOR EN XG, SPARK FORAN MÅL HAR IKKE 100% OSV!!
+#
+#
+#
+#
+#
+#
+threshold_results <- data.frame(Threshold = thresholds, Accuracy = NA)
+
+for (i in seq_along(thresholds)) {
+  t <- thresholds[i]
+  
+  # Konverter sandsynligheder til klasser
+  pred_class <- ifelse(rf_test > t, "1", "0")
+  
+  # Beregn Accuracy
+  acc_score <- mean(pred_class == test_data$SHOTISGOAL)
+  
+  # Gem resultater
+  threshold_results$Accuracy[i] <- round(acc_score, 5)
+}
+
+thresholds <- seq(0.00, 1.0, by = 0.01)
+
+f1_results <- data.frame(Threshold = thresholds, F1 = NA)
+
+for (i in seq_along(thresholds)) {
+  t <- thresholds[i]
+  
+  # binariser prediktionerne
+  pred_class <- ifelse(rf_test > t, "1", "0")
+  
+  # confusion matrix
+  cm <- confusionMatrix(as.factor(pred_class), as.factor(test_data$SHOTISGOAL), positive = "1")
+  
+  # gem F1
+  f1_results$F1[i] <- cm$byClass["F1"]
+}
+
+# Find bedste threshold baseret på F1
+
+###### Old XGBoost ######
 # xgboost vil have det i matrix, og y som numeric
 x_train <- model.matrix(variables, data = train_data_clean)[, -1]
 y_train <- as.numeric(as.character(train_data_clean$SHOTISGOAL))
@@ -365,7 +533,7 @@ xgb_auc <- auc(y_test, xgb_pred)
 cat("AUC for XGBoost:", round(xgb_auc, 4), "\n")
 
 
-###### Advanced ######
+Advanced 
 xgb_results <- data.frame(
   max_depth = numeric(),
   subsample = numeric(),
@@ -433,88 +601,3 @@ xgb_model_final <- xgboost(
 xgb_pred <- predict(xgb_model_final, x_test, type = "prob")
 xgb_auc <- auc(y_test, xgb_pred)
 cat("Endelig AUC for tuned XGBoost:", round(xgb_auc, 4), "\n")
-
-##### WyScout #####
-roc_wyscout <- roc(test_data$SHOTISGOAL, test_data$SHOTXG)
-auc_wyscout <- auc(roc_wyscout)
-print(auc_wyscout)
-
-
-
-###### Make the predicts ######
-best_threshold <- 0.35
-print(best_threshold)
-
-rf_preds <- ifelse(rf_test > best_threshold, "1", "0")
-
-# for test
-rf_confusion <- confusionMatrix(xgb_pred, test_data_clean$SHOTISGOAL)
-rf_confusion
-
-
-#### Evaluating ####
-# test nye sæson
-
-xG_Comparison <- allshotevents %>%
-  select(EVENT_WYID,LOCATIONX,LOCATIONY,SHOTISGOAL,SHOTXG,xG_RF) %>%
-  as.data.frame()
-
-
-
-
-
-
-
-
-
-
-
-#### Extras and other things probs not needed ####
-###### Best Threshold F1 måske ikke relevant? ######
-thresholds <- seq(0.1, 1.0, by = 0.001)
-
-# Gem Accuracy for hver threshold
-#
-#
-#
-# HUSK AT SE NOGET OM, HVAD DER ER REALTISTISK FOR EN XG, SPARK FORAN MÅL HAR IKKE 100% OSV!!
-#
-#
-#
-#
-#
-#
-threshold_results <- data.frame(Threshold = thresholds, Accuracy = NA)
-
-for (i in seq_along(thresholds)) {
-  t <- thresholds[i]
-  
-  # Konverter sandsynligheder til klasser
-  pred_class <- ifelse(rf_test > t, "1", "0")
-  
-  # Beregn Accuracy
-  acc_score <- mean(pred_class == test_data$SHOTISGOAL)
-  
-  # Gem resultater
-  threshold_results$Accuracy[i] <- round(acc_score, 5)
-}
-
-###### F1 Score ######
-thresholds <- seq(0.00, 1.0, by = 0.01)
-
-f1_results <- data.frame(Threshold = thresholds, F1 = NA)
-
-for (i in seq_along(thresholds)) {
-  t <- thresholds[i]
-  
-  # binariser prediktionerne
-  pred_class <- ifelse(rf_test > t, "1", "0")
-  
-  # confusion matrix
-  cm <- confusionMatrix(as.factor(pred_class), as.factor(test_data$SHOTISGOAL), positive = "1")
-  
-  # gem F1
-  f1_results$F1[i] <- cm$byClass["F1"]
-}
-
-# Find bedste threshold baseret på F1
