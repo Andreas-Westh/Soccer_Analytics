@@ -79,7 +79,29 @@ allshotevents$SHOTISGOAL <- as.factor(allshotevents$SHOTISGOAL)
 # glm
 
 
+# scrapede team rankeringer 2022 / 2023 (sæsonen før)
+team_rankings_2223 <- read.csv("xG/Scraped_Data/Team_Rankings_2223.csv")
+team_rankings_2223$Hold <- gsub(" ?FC ?", "", team_rankings_2223$Hold)
+team_rankings_2223$Hold <- gsub(" ?FF ?", "", team_rankings_2223$Hold)
+team_rankings_2223$Hold <- gsub(" ?IF ?", "", team_rankings_2223$Hold)
 
+team_rankings_2223 <- team_rankings_2223 %>%
+  rename(TEAMNAME = Hold)
+
+# team i 2023 / 2024
+all_teams_2324 <- allteams_raw %>% filter(SEASON_WYID == "188945")
+
+# merge, and giving the new team 12th place
+all_teams_2324 <- all_teams_2324 %>% 
+  left_join(team_rankings_2223, by = "TEAMNAME") %>% 
+  mutate(Team_Ranking = if_else(is.na(Placering), 12, Placering))
+
+all_teams_2324 <- all_teams_2324 %>% 
+  select(TEAMNAME, Team_Ranking, everything())
+
+allshotevents <- allshotevents %>%
+  left_join(all_teams_2324 %>% select(TEAM_WYID, TEAMNAME, Team_Ranking),
+            by = "TEAM_WYID")
 
 #### SPLITTING DATA ####
 set.seed(1980) # for reproducablility
@@ -98,6 +120,13 @@ round(prop.table(table(test_data$SHOTISGOAL)), 4)
 
 #### beskrivende statistik ####
 
+
+# Korrelation
+
+
+
+
+
 ##### Simple boruta #####
 boruta_result <- Boruta(SHOTISGOAL ~ x_variables, data = train_data_clean, doTrace = 1,)
 plot(boruta_result, las = 2, cex.axis = 0.7)
@@ -108,7 +137,6 @@ boruta_df <- importance_df[order(-importance_df$meanImp), ]
 max_shadow <- max(importance_df[grepl("shadow", rownames(importance_df)), "meanImp"])
 
 # Filter through shadows and 100th procentile
-
 #### SET VIARIABLES HERE!! ####
 # fjerne nogle af de mange
 #x_variables <- c(
@@ -133,7 +161,8 @@ x_variables <- c(
 x_variables <- c(
   "shot_angle", 
   "shot_distance", 
-  "SHOTBODYPART"
+  "SHOTBODYPART",
+  "Team_Ranking"
 )
 
 
@@ -206,7 +235,7 @@ get_significance_stars <- function(p) {
 # Loop gennem alle forklarende variable
 for (i in x_variables) {
   formula_glm <- as.formula(paste("SHOTISGOAL ~", i))
-  glm_model <- glm(formula_glm, data = train_data, family = "binomial")
+  glm_model <- glm(formula_glm, data = train_data_clean, family = "binomial")
   
   # Udtræk koefficient og p-værdi for den pågældende variabel
   glm_coeff <- summary(glm_model)$coefficients[2,1]  # Koefficient
@@ -260,7 +289,7 @@ tuned_rf <- train(variables,
                   data = train_data_clean, 
                   method = "rf", 
                   trControl = ctrl, 
-                  tuneGrid = expand.grid(mtry = c(2, 4, 6)))
+                  tuneGrid = expand.grid(mtry = c(1, 2, 3, 4)))
 
 best_mtry <- tuned_rf$results[1,1]
 print(best_mtry)
@@ -276,7 +305,8 @@ for (i in seq_along(trees)) {
   rf_model <- randomForest(variables, 
                            data = train_data_clean, 
                            ntree = trees[i], 
-                           mtry = 2)
+                           mtry = 2,
+                           sampsize = c("0" = 300, "1" = 300))
   
   probs <- predict(rf_model, test_data_clean, type = "prob")[, "1"]
   
@@ -400,7 +430,7 @@ xgb_model_final <- xgboost(
   verbose = 1
 )
 
-xgb_pred <- predict(xgb_model_final, x_test)
+xgb_pred <- predict(xgb_model_final, x_test, type = "prob")
 xgb_auc <- auc(y_test, xgb_pred)
 cat("Endelig AUC for tuned XGBoost:", round(xgb_auc, 4), "\n")
 
@@ -412,7 +442,7 @@ print(auc_wyscout)
 
 
 ###### Make the predicts ######
-best_threshold <- 0.3
+best_threshold <- 0.35
 print(best_threshold)
 
 rf_preds <- ifelse(rf_test > best_threshold, "1", "0")
@@ -423,6 +453,8 @@ rf_confusion
 
 
 #### Evaluating ####
+# test nye sæson
+
 xG_Comparison <- allshotevents %>%
   select(EVENT_WYID,LOCATIONX,LOCATIONY,SHOTISGOAL,SHOTXG,xG_RF) %>%
   as.data.frame()
