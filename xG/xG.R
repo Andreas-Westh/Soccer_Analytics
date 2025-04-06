@@ -141,7 +141,7 @@ round(prop.table(table(test_data$SHOTISGOAL)), 4)
 
 
 ##### Simple boruta #####
-boruta_result <- Boruta(variables, data = train_data_clean, doTrace = 1,)
+boruta_result <- Boruta(SHOTISGOAL ~ ., data = train_data, doTrace = 1,)
 plot(boruta_result, las = 2, cex.axis = 0.7)
 
 final_vars <- getSelectedAttributes(boruta_result, withTentative = FALSE)
@@ -185,10 +185,33 @@ x_variables <- c(
   "SHOTBODYPART.right_foot",
   "Team_Ranking",
   "overall",
-  "potential"
+  "potential",
+  "LOCATIONX",
+  "LOCATIONY"
 )
 
+x_variables <- c(
+  "shot_angle", 
+  "shot_distance", 
+  "SHOTBODYPART.head_or_other",
+  "SHOTBODYPART.left_foot",
+  "SHOTBODYPART.right_foot",
+  "LOCATIONX",
+  "POSSESSIONEVENTSNUMBER",
+  "POSSESSIONEVENTINDEX",
+  "LOCATIONY"
+)
 
+#XGB AUV: 0.8
+x_variables <- c(
+  "shot_angle", 
+  "shot_distance", 
+  "SHOTBODYPART.head_or_other",
+  "SHOTBODYPART.left_foot",
+  "SHOTBODYPART.right_foot",
+  "LOCATIONX",
+  "LOCATIONY"
+)
 
 variables <- as.formula(paste("SHOTISGOAL ~", paste(x_variables, collapse = " + ")))
 
@@ -420,6 +443,7 @@ xgb_tune <- train(set.seed(1980),
 xgb_tune$bestTune
 
 train_control <- trainControl(method = "none",
+                              #number = 3,
                               classProbs = TRUE,
                               summaryFunction = twoClassSummary,
                               verboseIter = TRUE,
@@ -457,9 +481,10 @@ print(auc_wyscout)
 
 ###### Make the predicts ######
 best_threshold <- 0.35
-xgb_class <- ifelse(xgb_pred > best_threshold, "yes", "no")
-xgb_class <- factor(xgb_class, levels = c("no", "yes"))
-actual <- factor(test_data_yn$SHOTISGOAL, levels = c("no", "yes"))
+
+predictors <- allshotevents[, colnames(train_data_yn[,-1])]
+xg_values <- predict(xgb_model, newdata = predictors, type = "prob")[, "yes"]
+allshotevents$xG_XGB <- xg_values
 
 # for test
 rf_confusion <- confusionMatrix(xgb_class, actual)
@@ -470,7 +495,7 @@ rf_confusion
 # test nye sæson
 
 xG_Comparison <- allshotevents %>%
-  select(EVENT_WYID,LOCATIONX,LOCATIONY,SHOTISGOAL,SHOTXG,xG_RF) %>%
+  select(EVENT_WYID,LOCATIONX,LOCATIONY,SHOTISGOAL,SHOTXG,xG_XGB) %>%
   as.data.frame()
 
 
