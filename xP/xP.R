@@ -1,6 +1,7 @@
 library(RMariaDB)
 library(tidyverse)
 library(gganimate)
+library(ggimage)
 
 
 #### Data Retrievel ####
@@ -233,19 +234,122 @@ xp_tidsserie <- xp_results_matches %>%
   group_by(Team) %>%
   mutate(cumulative_xP = cumsum(Team_xP))
 
+team_logos <- all_teams_2324 %>%
+  select(TEAMNAME, IMAGEDATAURL) %>%
+  rename(Team = TEAMNAME, logo_url = IMAGEDATAURL)
+
+xp_tidsserie <- xp_tidsserie %>%
+  left_join(team_logos, by = "Team")
+
 maks_kampe <- max(xp_tidsserie$kamp_nummer) 
 
-for (kamp in 1:length(maks_kampe)) { 
-Sys.sleep(0.5)
-  p <- ggplot(xp_tidsserie, aes(x = kamp, y = cumulative_xP, color = Team, group = Team)) +
-  geom_line(size = 1) +
-  labs(title = "Akkumuleret xP per kamp i sæsonen",
-       x = "Kampnummer",
-       y = "Akkumuleret Expected Points") +
-  theme_minimal() +
+team_colors <- c(
+  "Brøndby" = "#ffe100",
+  "AGF" = "white",
+  "København" = "white",
+  "Midtjylland" = "white",
+  "Nordsjælland" = "white",
+  "Silkeborg" = "white",
+  "OB" = "white",
+  "Randers" = "white",
+  "Viborg" = "white",
+  "Lyngby" = "white",
+  "Hvidovre" = "white",
+  "Vejle" = "white"
+)
+
+
+# as loop
+for (kamp in 1:maks_kampe) {
+  Sys.sleep(0.5)
   
-print(p)
+  current_data <- xp_tidsserie %>%
+    filter(kamp_nummer <= kamp) %>%
+    group_by(Team, logo_url) %>%
+    summarise(cumulative_xP = sum(Team_xP, na.rm = TRUE)) %>%
+    arrange(desc(cumulative_xP))
+  
+  p <- ggplot(current_data, aes(x = reorder(Team, cumulative_xP), y = cumulative_xP)) +
+    geom_col(aes(fill = Team), color = "black") +
+    geom_image(aes(image = logo_url), size = 0.05, asp = 1.2) +
+    coord_flip() +
+    labs(
+      title = paste("xP efter", kamp, "kampe"),
+      x = NULL,
+      y = "Akkumuleret xP"
+    ) +
+    theme_minimal(base_size = 14)
+  
+  print(p)
 }
+
+
+# with gganimate
+xp_tidsserie_full <- xp_tidsserie %>%
+  group_by(Team) %>%
+  complete(kamp_nummer = 1:maks_kampe) %>%
+  fill(cumulative_xP, logo_url, .direction = "down") %>%
+  replace_na(list(cumulative_xP = 0))
+
+rank_order <- xp_tidsserie_full %>%
+  group_by(Team) %>%
+  filter(kamp_nummer == max(kamp_nummer, na.rm = TRUE)) %>%
+  arrange(cumulative_xP) %>%
+  pull(Team)
+
+xp_tidsserie_full <- xp_tidsserie_full %>%
+  mutate(Team = factor(Team, levels = rank_order))
+
+p <- ggplot(xp_tidsserie_full, aes(x = Team, y = cumulative_xP)) +
+  geom_col(aes(fill = Team), color = "black") +
+  geom_image(aes(image = logo_url), size = 0.06, asp = 1.2) +
+  scale_fill_manual(values = team_colors) +
+  coord_flip() +
+  labs(
+    title = "xP Udvikling gennem sæsonen – Kamp {closest_state}",
+    x = NULL,
+    y = "Akkumuleret Expected Points"
+  ) +
+  theme_minimal(base_size = 16) +
+  theme(
+    plot.title = element_text(face = "bold", hjust = 0.5),
+    axis.text.y = element_text(face = "bold"),
+    axis.text.x = element_text(size = 12),
+    legend.position = "none"
+  ) +
+  transition_states(kamp_nummer, transition_length = 2, state_length = 1) +
+  ease_aes("linear")
+
+xp_anim <- animate(p, width = 800, height = 600, fps = 10, duration = maks_kampe * 0.4, loop = FALSE)
+anim_save("xP/Figures/xp_animation.gif", xp_anim)
+
+
+# Find sidste kamp per hold
+xp_last_frame <- xp_tidsserie_full %>%
+  group_by(Team) %>%
+  filter(kamp_nummer == max(kamp_nummer, na.rm = TRUE)) %>%
+  ungroup()
+
+# Lav statisk barplot med logo og farver
+ggplot(xp_last_frame, aes(x = reorder(Team, cumulative_xP), y = cumulative_xP)) +
+  geom_col(aes(fill = Team), color = "black") +
+  geom_image(aes(image = logo_url), size = 0.06, asp = 1.2) +
+  scale_fill_manual(values = team_colors) +
+  coord_flip() +
+  labs(
+    title = "Slutstilling xP – baseret på antal spillede kampe per hold",
+    x = NULL,
+    y = "Akkumuleret Expected Points"
+  ) +
+  theme_minimal(base_size = 16) +
+  theme(
+    plot.title = element_text(face = "bold", hjust = 0.5),
+    axis.text.y = element_text(face = "bold"),
+    axis.text.x = element_text(size = 12),
+    legend.position = "none"
+  )
+
+
 
 # check avg xg
 allshotevents %>% 
