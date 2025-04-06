@@ -197,6 +197,7 @@ x_variables <- c(
   "SHOTBODYPART.left_foot",
   "SHOTBODYPART.right_foot",
   "LOCATIONX",
+  "POSSESSIONDURATION",
   "POSSESSIONEVENTSNUMBER",
   "POSSESSIONEVENTINDEX",
   "LOCATIONY"
@@ -308,6 +309,7 @@ for (i in x_variables) {
 
 glm_result$coefficient <- round(glm_result$coefficient,2)
 glm_result$p_value <- round(glm_result$p_value,4)
+view(glm_result)
 
 # Full multivariate GLM
 glm_train <- glm(variables, 
@@ -416,14 +418,15 @@ test_data_yn$SHOTISGOAL <- factor(test_data_yn$SHOTISGOAL,
                                      labels = c("no", "yes"))
 # https://youtu.be/qjeUhuvkbHY?si=-bYul2KuvoOnusPo&t=763
 grid_tune <- expand.grid(
-  nrounds = c(500, 1000),          
-  max_depth = c(2, 4),             
-  eta = c(0.005, 0.01),              
-  gamma = c(0.25, 0.5, 0.75),         
-  colsample_bytree = c(0.5, 0.8),   
-  min_child_weight = c(2, 3),     
-  subsample = c(0.25, 0.5)         
+  nrounds = c(500, 1000, 1500),                # Flere iterationer
+  max_depth = c(2, 4, 6),                      # Dybere træer
+  eta = c(0.005, 0.01),                  # Flere læringsrater
+  gamma = c(0.25, 0.5, 0.75),            # Fra ingen pruning til aggressiv pruning
+  colsample_bytree = c(0.3, 0.5, 0.7, 0.8),    # Flere trætræks-sampler
+  min_child_weight = c(2, 3),               # Mindre = mere kompleks
+  subsample = c(0.5, 0.75, 1.0)                # Hvor mange samples pr. træ
 )
+
 
 train_control <- trainControl(method = "cv",
                               number=5,
@@ -442,15 +445,18 @@ xgb_tune <- train(set.seed(1980),
 
 xgb_tune$bestTune
 
-train_control <- trainControl(method = "none",
-                              #number = 3,
+train_control <- trainControl(method = "cv",
+                              number = 3,
                               classProbs = TRUE,
                               summaryFunction = twoClassSummary,
                               verboseIter = TRUE,
                               allowParallel = TRUE)
-final_grid <- expand.grid(nrounds = xgb_tune$bestTune$nrounds,
+final_grid <- expand.grid(
+                          nrounds = xgb_tune$bestTune$nrounds,
+                          #nrounds = 2500,
                           eta = xgb_tune$bestTune$eta,
                           max_depth = xgb_tune$bestTune$max_depth,
+                          #max_depth = 3,
                           gamma = xgb_tune$bestTune$gamma,
                           colsample_bytree = xgb_tune$bestTune$colsample_bytree,
                           min_child_weight = xgb_tune$bestTune$min_child_weight,
@@ -501,10 +507,60 @@ xG_Comparison <- allshotevents %>%
 
 
 
+#### Test on new season ####
+allshotevents_filtered_2425 <- allshotevents_raw %>%
+  filter(SEASON_WYID != 188945)
+
+# make the final df
+allshotevents_2425 <- allshotevents_filtered_2425
+
+#feature engineering
+# length
+allshotevents_2425$shot_distance <- sqrt((100 - allshotevents_2425$LOCATIONX)^2 + 
+                                      (50 - allshotevents_2425$LOCATIONY)^2)
+
+#vinkel
+# define goal parameters
+goal_width <- 11.43  # width of the goal
+goal_center_y <- 50  # center of the goal
+goal_x <- 100        # goal line x-coordinate
+
+# calculate the shot angle using the geometry of shooting method
+allshotevents_2425 <- allshotevents_2425 %>%
+  mutate(
+    x = abs(goal_x - LOCATIONX),  # distance to goal line
+    y = abs(LOCATIONY - goal_center_y),  # lateral distance from goal center
+    
+    # calculate the goal angle using the geometry method
+    shot_angle = atan2(goal_width * x, 
+                       x^2 + y^2 - (goal_width / 2)^2) * 180 / pi
+  )
+
+allshotevents_2425$SHOTISGOAL <- as.factor(allshotevents_2425$SHOTISGOAL)
+
+allshotevents_2425$SHOTBODYPART <- as.factor(allshotevents_2425$SHOTBODYPART)
+onehots <- dummyVars(~ SHOTBODYPART, data = allshotevents_2425)
+dummy_data <- predict(onehots, newdata = allshotevents_2425)
+allshotevents_2425 <- cbind(allshotevents_2425, dummy_data)
 
 
+selected_cols <- c(x_variables, "SHOTISGOAL")
+allshotevents_clean_2425 <- allshotevents_2425[, selected_cols]
+
+test_2425 <- allshotevents_clean_2425 %>% 
+  select(SHOTISGOAL, everything())
+
+round(prop.table(table(test_2425$SHOTISGOAL)),4)
 
 
+xgb_pred_2425 <- predict(xgb_model, test_2425, type = "prob")[, "yes"]
+xgb_auc_2425 <- auc(test_2425$SHOTISGOAL, xgb_pred_2425)
+cat("Endelig AUC for tuned XGBoost 2024 / 2025:", round(xgb_auc_2425, 4), "\n")
+
+
+roc_wyscout_2425 <- roc(allshotevents_2425$SHOTISGOAL, allshotevents_2425$SHOTXG)
+auc_wyscout_2425 <- auc(roc_wyscout_2425)
+print(auc_wyscout_2425)
 
 
 
