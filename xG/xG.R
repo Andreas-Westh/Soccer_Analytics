@@ -30,12 +30,16 @@ allshots_raw <- dbReadTable(con, "wyscout_matchevents_shots_sl")
 allevents_raw <- dbReadTable(con, "wyscout_matchevents_common_sl") 
 allplayers_raw <- dbReadTable(con, "wyscout_players_sl") 
 allteams_raw <- dbReadTable(con, "wyscout_teams_sl") 
+allmatches_raw <- dbReadTable(con, "wyscout_teams_sl") 
+
 
 
 #bind those badboys
 allshotevents_raw <- allshots_raw %>%
   left_join(allevents_raw, by = "EVENT_WYID")
 
+allshotevents_raw <- allshotevents_raw %>%
+  left_join(allevents_raw, by = "EVENT_WYID")
 
 allshotevents_filtered <- allshotevents_raw %>%
   filter(SEASON_WYID == 188945)
@@ -110,6 +114,8 @@ allshotevents <- allshotevents %>%
 
 allshotevents <- allshotevents %>%
   distinct(EVENT_WYID, .keep_all = TRUE)
+
+
 
 # recent preformance / hothand
 #no fucking clue
@@ -486,15 +492,30 @@ print(auc_wyscout)
 
 
 ###### Make the predicts ######
+# Threshold du vil bruge
 best_threshold <- 0.35
 
+# Udpeg feature-kolonner (samme som i træning)
 predictors <- allshotevents[, colnames(train_data_yn[,-1])]
+
+# Predict med XGBoost (giver sandsynligheder for "yes")
 xg_values <- predict(xgb_model, newdata = predictors, type = "prob")[, "yes"]
+
+# Gem sandsynligheder i allshotevents
 allshotevents$xG_XGB <- xg_values
 
-# for test
-rf_confusion <- confusionMatrix(xgb_class, actual)
+# Binarisér predictions ud fra threshold
+pred_class <- ifelse(xg_values > best_threshold, "yes", "no")
+pred_class <- factor(pred_class, levels = c("no", "yes"))
+
+# Konverter faktiske labels fra 0/1 til "no"/"yes" (uden at ændre i datasættet)
+true_class <- factor(ifelse(allshotevents$SHOTISGOAL == "1", "yes", "no"), 
+                     levels = c("no", "yes"))
+
+# Lav konfusion matrix
+rf_confusion <- confusionMatrix(pred_class, true_class)
 rf_confusion
+
 
 
 #### Evaluating ####

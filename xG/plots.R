@@ -1,6 +1,11 @@
 library(ggsoccer)
 library(skimr)
 #### beskrivende statistik ####
+
+
+# Vis som tabel
+kable(stat_table, digits = 2, caption = "Beskrivende statistik for valgte variable")
+
 # Location 
 ggplot(allshotevents, aes(x = LOCATIONX, y = LOCATIONY)) +
   annotate_pitch(dimensions = pitch_wyscout, colour = "grey80", fill = "white") +
@@ -26,15 +31,54 @@ ggplot(allshotevents, aes(x = shot_angle)) +
   labs(x = "Skudvinkel (grader)", y = "Tæthed", title = "Fordeling af skudvinkler") +
   theme_minimal()
 
+# distance
 ggplot(allshotevents, aes(x = shot_distance)) +
   geom_histogram(fill = "darkorange") +
   labs(x = "Afstand til mål", y = "Tæthed", title = "Fordeling af skuddistance") +
   theme_minimal()
 
+# Kropsdel
 ggplot(allshotevents, aes(x = SHOTBODYPART)) +
   geom_bar(fill = "mediumseagreen") +
   labs(x = "Kropsdel", y = "Antal skud", title = "Fordeling af skud pr. kropsdel") +
   theme_minimal()
+
+# Team_Ranking
+ggplot(allshotevents, aes(x = Team_Ranking)) +
+  geom_histogram(fill = "mediumseagreen") +
+  labs(x = "Team_Ranking", y = "Antal skud", title = "Fordeling af skud pr. Team_Ranking") +
+  theme_minimal()
+
+# overall
+ggplot(allshotevents, aes(x = overall)) +
+  geom_histogram(fill = "mediumseagreen") +
+  labs(x = "overall", y = "Antal skud", title = "Fordeling af skud pr. overall") +
+  theme_minimal()
+
+# potential
+ggplot(allshotevents, aes(x = potential)) +
+  geom_histogram(fill = "mediumseagreen") +
+  labs(x = "potential", y = "Antal skud", title = "Fordeling af skud pr. potential") +
+  theme_minimal()
+
+# POSSESSIONEVENTSNUMBER
+ggplot(allshotevents, aes(x = POSSESSIONEVENTSNUMBER)) +
+  geom_histogram(fill = "mediumseagreen") +
+  labs(x = "POSSESSIONEVENTSNUMBER", y = "Antal skud", title = "Fordeling af skud pr. POSSESSIONEVENTSNUMBER") +
+  theme_minimal()
+
+# POSSESSIONEVENTINDEX
+ggplot(allshotevents, aes(x = POSSESSIONEVENTINDEX)) +
+  geom_histogram(fill = "mediumseagreen") +
+  labs(x = "POSSESSIONEVENTINDEX", y = "Antal skud", title = "Fordeling af skud pr. POSSESSIONEVENTINDEX") +
+  theme_minimal()
+
+# POSSESSIONDURATION
+ggplot(allshotevents, aes(x = POSSESSIONDURATION)) +
+  geom_histogram(fill = "mediumseagreen") +
+  labs(x = "POSSESSIONDURATION", y = "Antal skud", title = "Fordeling af skud pr. POSSESSIONDURATION") +
+  theme_minimal()
+
 
 
 
@@ -98,11 +142,6 @@ allshotevents_goals <- allshotevents %>%
 skim(select(allshotevents_goals, shot_angle, shot_distance, LOCATIONX, LOCATIONY, SHOTBODYPART))
 
 
-#### Models ####
-# sinuglar tree plot
-simple_tree_plot <- rpart.plot(tree_model, type = 2, extra = 104, fallen.leaves = TRUE,
-           box.palette = "RdYlGn", main = "Beslutningstræ (singular)")
-
 # Gennemsnit for mål
 mean_x_goal <- 90.2
 mean_y_goal <- 49.6
@@ -151,6 +190,11 @@ ggplot() +
   theme_pitch() +
   labs(title = "Gennemsnitlig skudposition – kun mål")
 
+
+#### Models ####
+# sinuglar tree plot
+simple_tree_plot <- rpart.plot(tree_model, type = 2, extra = 104, fallen.leaves = TRUE,
+                               box.palette = "RdYlGn", main = "Beslutningstræ (singular)")
 
 # RF ntree loop
 rf_ntree_loop <- ggplot(auc_df, aes(x = ntree, y = AUC)) +
