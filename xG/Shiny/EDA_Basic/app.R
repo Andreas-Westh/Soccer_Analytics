@@ -4,6 +4,8 @@ library(ggplot2)
 library(ggsoccer)
 library(viridis)
 library(purrr)
+library(tidyverse)
+library(ggimage)
 
 # -- UI -----------------------------------------------------------
 ui <- dashboardPage(
@@ -29,6 +31,9 @@ ui <- dashboardPage(
     )
   ),
   dashboardBody(
+    tags$head(
+      tags$link(rel = "shortcut icon", href = "favicon.ico")
+    ),
     tabItems(
       # Intro-tab
       tabItem(tabName = "intro",
@@ -408,6 +413,9 @@ make_plot <- function(data, var, avg_on) {
 # -- Server -------------------------------------------------------
 server <- function(input, output, session) {
   allshotevents <- readRDS("allshotevents_Shiny_EDA_1.rds")
+  train_data <- readRDS("train_data.rds")
+  test_data <- readRDS("test_data.rds")
+  
   observe({
     updateTabItems(session, "plot_choice", selected = "intro")
   })
