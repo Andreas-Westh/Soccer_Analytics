@@ -1,5 +1,7 @@
 library(ggsoccer)
 library(skimr)
+library(ggimage)
+library(tidyverse)
 #### beskrivende statistik ####
 
 
@@ -37,6 +39,58 @@ ggplot(allshotevents, aes(x = shot_distance)) +
   labs(x = "Afstand til mål", y = "Tæthed", title = "Fordeling af skuddistance") +
   theme_minimal()
 
+
+goal_x <- 100
+goal_y <- 50
+radii <- c(5, 10, 20, 30, 50)
+colors <- c("#00296b", "#003f88", "#00509d", "#fdc500", "#ffd500")
+
+# Funktion til halvcirkel-koordinater
+make_semicircle <- function(radius, center_x = goal_x, center_y = goal_y, n = 300) {
+  angles <- seq(-pi/2, pi/2, length.out = n)
+  data.frame(
+    x = center_x - radius * cos(angles),
+    y = center_y + radius * sin(angles)
+  )
+}
+
+# Generér alle cirkler
+circles <- purrr::map2_dfr(radii, colors, ~{
+  make_semicircle(.x) %>%
+    mutate(group = .x, color = .y)
+})
+
+# Plot
+ggplot(allshotevents, aes(x = LOCATIONX, y = LOCATIONY)) +
+  annotate_pitch(dimensions = pitch_wyscout, colour = "WHITE", fill = "gray") +
+  
+  # Bin-baseret heatmap
+  geom_bin2d(binwidth = c(2, 2), aes(fill = after_stat(count)), alpha = 0.6) +
+  
+  # Afstandscirkler i farver
+  geom_path(data = circles, aes(x = x, y = y, group = group, color = color), linewidth = 1, alpha = 0.8) +
+  geom_text(
+    data = circles %>% group_by(group, color) %>% slice(1),  # ét label pr. cirkel
+    aes(x = x, y = y, label = paste0(group, "m"), color = color),
+    fontface = "bold",
+    size = 2.5,
+    vjust = -0.5,
+    hjust = 0.8  # flyt teksten lidt til højre
+  ) +
+  scale_color_identity() +
+  
+  # Farveskala og styling
+  scale_fill_viridis_c(option = "A", direction = -1) +
+  
+  coord_flip(xlim = c(50, 100), ylim = c(0, 100)) +
+  theme_pitch() +
+  labs(
+    title = "Placering af skud – blokvis",
+    fill = "Antal skud"
+  ) +
+  theme(plot.title = element_text(hjust = 0.5, face = "bold"))
+
+
 # Kropsdel
 ggplot(allshotevents, aes(x = SHOTBODYPART)) +
   geom_bar(fill = "mediumseagreen") +
@@ -44,10 +98,32 @@ ggplot(allshotevents, aes(x = SHOTBODYPART)) +
   theme_minimal()
 
 # Team_Ranking
-ggplot(allshotevents, aes(x = Team_Ranking)) +
-  geom_histogram(fill = "mediumseagreen") +
-  labs(x = "Team_Ranking", y = "Antal skud", title = "Fordeling af skud pr. Team_Ranking") +
-  theme_minimal()
+# Aggreger antal skud pr. hold
+team_shots <- allshotevents %>%
+  group_by(TEAMNAME.x, Team_Ranking, IMAGEDATAURL) %>%
+  summarise(total_shots = n(), .groups = "drop") %>%
+  mutate(label = paste0(TEAMNAME.x, " (#", Team_Ranking, ")")) %>%
+  arrange(Team_Ranking)  # Så vi ved 1 er øverst
+
+# Plot: sortér label så 1 er øverst (reorder + desc)
+ggplot(team_shots, aes(x = reorder(label, -Team_Ranking), y = total_shots)) +
+  geom_col(fill = "lightgray", color = "black", width = 0.8) +
+  geom_image(aes(image = IMAGEDATAURL), size = 0.06, asp = 1.2) +
+  coord_flip() +
+  labs(
+    title = "Antal skud pr. hold (lavere ranking øverst)",
+    x = NULL,
+    y = "Antal skud"
+  ) +
+  theme_minimal(base_size = 16) +
+  theme(
+    plot.title = element_text(face = "bold", hjust = 0.5),
+    axis.text.y = element_text(face = "bold"),
+    axis.text.x = element_text(size = 12),
+    legend.position = "none"
+  )
+
+
 
 # overall
 ggplot(allshotevents, aes(x = overall)) +
