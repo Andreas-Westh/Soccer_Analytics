@@ -33,6 +33,46 @@ ggplot(allshotevents, aes(x = shot_angle)) +
   labs(x = "Skudvinkel (grader)", y = "Tæthed", title = "Fordeling af skudvinkler") +
   theme_minimal()
 
+# Målstolper (bruges som pile-endepunkter)
+goal_left <- c(x = 100, y = 44.285)
+goal_right <- c(x = 100, y = 55.715)
+
+# Dine skud
+vinkel_eksempler <- data.frame(
+  label = c("Skarp vinkel (7°)", "Middel vinkel (35°)", "Åben vinkel (78°)"),
+  x = c(69, 91, 93),
+  y = c(91, 60, 50)
+)
+
+ggplot() +
+  annotate_pitch(dimensions = pitch_wyscout, colour = "grey80", fill = "gray90") +
+  
+  # Linjer til begge målstolper
+  geom_segment(data = vinkel_eksempler,
+               aes(x = x, y = y, xend = goal_left["x"], yend = goal_left["y"]),
+               arrow = arrow(length = unit(0.15, "cm")), color = "black") +
+  geom_segment(data = vinkel_eksempler,
+               aes(x = x, y = y, xend = goal_right["x"], yend = goal_right["y"]),
+               arrow = arrow(length = unit(0.15, "cm")), color = "black") +
+  
+  # Skudpunkter
+  geom_point(data = vinkel_eksempler, aes(x = x, y = y), size = 4, color = "red") +
+  
+  # Labels
+  geom_text(data = vinkel_eksempler, aes(x = x - 1.5, y = y, label = label),
+            hjust = 1, fontface = "bold") +
+  
+  coord_flip(xlim = c(65, 105), ylim = c(0, 100)) +
+  theme_pitch() +
+  labs(title = "Visuel sammenligning af skudvinkler") +
+  theme(plot.title = element_text(hjust = 0.5, face = "bold"))
+
+
+
+
+
+
+
 # distance
 ggplot(allshotevents, aes(x = shot_distance)) +
   geom_histogram(fill = "darkorange") +
@@ -65,7 +105,7 @@ ggplot(allshotevents, aes(x = LOCATIONX, y = LOCATIONY)) +
   annotate_pitch(dimensions = pitch_wyscout, colour = "WHITE", fill = "gray") +
   
   # Bin-baseret heatmap
-  geom_bin2d(binwidth = c(2, 2), aes(fill = after_stat(count)), alpha = 0.6) +
+  geom_bin2d(binwidth = c(2, 2), aes(fill = after_stat(count)), alpha = 0.4) +
   
   # Afstandscirkler i farver
   geom_path(data = circles, aes(x = x, y = y, group = group, color = color), linewidth = 1, alpha = 0.8) +
