@@ -172,7 +172,7 @@ for (team in all_teams) {
     
     match_xg <- match_data %>%
       group_by(TEAMNAME) %>%
-      summarise(xG = sum(SHOTXG, na.rm = TRUE)) %>%
+      summarise(xG = sum(xG_XGB, na.rm = TRUE)) %>%
       arrange(desc(TEAMNAME == team))
     
     score_matrix <- expand.grid(
@@ -341,7 +341,7 @@ p <- ggplot(xp_tidsserie_full, aes(x = Team, y = cumulative_xP)) +
   ease_aes("linear")
 
 xp_anim <- animate(p, width = 800, height = 600, fps = 10, duration = maks_kampe * 0.4, loop = FALSE)
-anim_save("xP/Figures/xp_animation.gif", xp_anim)
+anim_save("xP/Shiny/www/xp_animation.gif", xp_anim)
 
 
 # Find sidste kamp per hold
@@ -432,4 +432,20 @@ xp2 <- sum(
 # Resultat
 expected_points <- match_xg %>%
   mutate(xP = round(c(xp1, xp2), 3))
+
+
+
+
+
+# Gem animation (loop = FALSE)
+xp_anim <- animate(p, width = 800, height = 600, fps = 10, duration = maks_kampe * 0.4, loop = FALSE)
+anim_save("xP/Shiny/www/xp_animation.gif", xp_anim)
+
+# Gem sidste frame som billede
+last_frame <- tail(xp_tidsserie_full$kamp_nummer, 1)
+static_plot <- p + transition_states(NULL) + 
+  labs(title = paste("xP efter", maks_kampe, "kampe"))  # override animation
+
+ggsave("xP/Shiny/www/xp_static.png", plot = static_plot, width = 8, height = 6, dpi = 100)
+
 
