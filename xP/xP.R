@@ -58,6 +58,10 @@ allshotevents <- allshotevents %>%
                        x^2 + y^2 - (goal_width / 2)^2) * 180 / pi
   )
 
+
+
+
+
 allshotevents$SHOTISGOAL <- as.factor(allshotevents$SHOTISGOAL)
 
 allteams_raw_unique <- allteams_raw %>%
@@ -84,6 +88,9 @@ allshotmatches_brøndby <-  allshotevents %>%
 
 single_match <- allshotmatches_brøndby %>% 
   filter(MATCH_WYID.x == "5466028")
+
+
+
 
 
 #### Loop ####
@@ -208,6 +215,19 @@ xp_sum <- xp_results %>%
   group_by(Team) %>%
   summarise(Total_xP = round(sum(Team_xP, na.rm = TRUE), 2)) %>%
   arrange(desc(Total_xP))
+
+
+# get actual points
+team_rankings_2324 <- read_csv("xG/Scraped_Data/Team_Rankings_2324.csv")
+team_rankings_2324$Hold <- gsub(" ?FC ?", "", team_rankings_2324$Hold)
+team_rankings_2324$Hold <- gsub(" ?FF ?", "", team_rankings_2324$Hold)
+team_rankings_2324$Hold <- gsub(" ?IF ?", "", team_rankings_2324$Hold)
+team_rankings_2324$Hold <- gsub(" ?Boldklub ?", "", team_rankings_2324$Hold)
+team_rankings_2324 <- team_rankings_2324 %>% rename("Team" = Hold)
+
+xp_sum <- xp_sum %>% 
+  left_join(team_rankings_2324, "Team")
+
 
 # kamp nr
 allshotevents_kampe <- allshotevents %>%
