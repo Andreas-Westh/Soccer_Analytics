@@ -350,6 +350,10 @@ xp_last_frame <- xp_tidsserie_full %>%
   filter(kamp_nummer == max(kamp_nummer, na.rm = TRUE)) %>%
   ungroup()
 
+xp_last_frame <- xp_last_frame %>%
+  left_join(xp_sum %>% select(Team, Point), by = "Team")
+
+
 # Lav statisk barplot med logo og farver
 ggplot(xp_last_frame, aes(x = reorder(Team, cumulative_xP), y = cumulative_xP)) +
   geom_col(aes(fill = Team), color = "black") +
@@ -368,6 +372,30 @@ ggplot(xp_last_frame, aes(x = reorder(Team, cumulative_xP), y = cumulative_xP)) 
     axis.text.x = element_text(size = 12),
     legend.position = "none"
   )
+
+# Sørg for at xp_last_frame også indeholder den faktiske point-kolonne
+ggplot(xp_last_frame, aes(x = reorder(Team, cumulative_xP), y = cumulative_xP)) +
+  geom_col(aes(fill = Team), color = "black") +
+  # Tilføj punkt for faktiske point
+  geom_point(aes(y = Point), color = "black", size = 3) +
+  geom_image(aes(image = logo_url), size = 0.06, asp = 1.2) +
+  scale_fill_manual(values = team_colors) +
+  coord_flip() +
+  labs(
+    title = "Slutstilling xP – baseret på antal spillede kampe per hold",
+    subtitle = "Hold med laveste points, underpræsterede ift. deres skudchancer",
+    x = NULL,
+    y = "Akkumuleret Expected Points"
+  ) +
+  theme_minimal(base_size = 16) +
+  theme(
+    plot.title = element_text(face = "bold", hjust = 0.5),
+    plot.subtitle = element_text(face = "italic"),
+    axis.text.y = element_text(face = "bold"),
+    axis.text.x = element_text(size = 12),
+    legend.position = "none"
+  )
+
 
 
 
