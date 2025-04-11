@@ -19,4 +19,4 @@ The repo contains:
 Data preprocessing, modeling, and visualization were done in R, with interactive dashboards created in Shiny.
 
 
-> Data was scraped using a combination of R and Python — including Playwright for scraping team rankings from Flashscore and player profiles from FifaIndex.
+> Other data outside of Wyscout was scraped using a combination of R and Python — including Playwright for scraping team rankings from Flashscore and player profiles from FifaIndex.
