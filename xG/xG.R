@@ -24,21 +24,14 @@ con <- dbConnect(MariaDB(),
                  port = port,
                  user = user,
                  password = SQLpassword)
-
-dbListTables(con)
-allshots_raw <- dbReadTable(con, "wyscout_matchevents_shots_sl") 
 allevents_raw <- dbReadTable(con, "wyscout_matchevents_common_sl") 
 allplayers_raw <- dbReadTable(con, "wyscout_players_sl") 
-allteams_raw <- dbReadTable(con, "wyscout_teams_sl") 
-allmatches_raw <- dbReadTable(con, "wyscout_teams_sl") 
+allteams_raw <- dbReadTable(con, "wyscout_teams_sl")
 
 
 
 #bind those badboys
 allshotevents_raw <- allshots_raw %>%
-  left_join(allevents_raw, by = "EVENT_WYID")
-
-allshotevents_raw <- allshotevents_raw %>%
   left_join(allevents_raw, by = "EVENT_WYID")
 
 allshotevents_filtered <- allshotevents_raw %>%
@@ -49,8 +42,8 @@ allshotevents <- allshotevents_filtered
 
 #feature engineering
 # length
-allshotevents$shot_distance <- sqrt((100 - allshotevents$POSSESSIONENDLOCATIONX)^2 + 
-                                   (50 - allshotevents$POSSESSIONENDLOCATIONY)^2)
+allshotevents$shot_distance <- sqrt((100 - allshotevents$LOCATIONX)^2 + 
+                                   (50 - allshotevents$LOCATIONY)^2)
 
 #vinkel
 # define goal parameters
@@ -61,8 +54,8 @@ goal_x <- 100        # goal line x-coordinate
 # calculate the shot angle using the geometry of shooting method
 allshotevents <- allshotevents %>%
   mutate(
-    x = abs(goal_x - POSSESSIONENDLOCATIONX),  # distance to goal line
-    y = abs(POSSESSIONENDLOCATIONY - goal_center_y),  # lateral distance from goal center
+    x = abs(goal_x - LOCATIONX),  # distance to goal line
+    y = abs(LOCATIONY - goal_center_y),  # lateral distance from goal center
     
     # calculate the goal angle using the geometry method
     shot_angle = atan2(goal_width * x, 
@@ -112,10 +105,22 @@ allshotevents <- allshotevents %>%
   left_join(matched_df %>% select(PLAYER_WYID, overall, potential, SHORTNAME),
             by = "PLAYER_WYID")
 
+# team name and url
+allteams_clean <- allteams_raw %>% 
+  filter(SEASON_WYID == "188945") %>% 
+  select("SEASON_WYID","TEAM_WYID","TEAMNAME","CITY","IMAGEDATAURL")
+
+allshotevents <- allshotevents %>%
+  left_join(allteams_clean,
+            by = "TEAM_WYID")
+
+
+
+
+
+
 allshotevents <- allshotevents %>%
   distinct(EVENT_WYID, .keep_all = TRUE)
-
-
 
 # recent preformance / hothand
 #no fucking clue
@@ -136,6 +141,7 @@ test_data <- allshotevents[-train_index,]
 round(prop.table(table(train_data$SHOTISGOAL)),4)
 round(prop.table(table(test_data$SHOTISGOAL)), 4)
 
+round(prop.table(table(allshotevents$SHOTISGOAL)), 4)
 
 #### beskrivende statistik ####
 
@@ -147,7 +153,7 @@ round(prop.table(table(test_data$SHOTISGOAL)), 4)
 
 
 ##### Simple boruta #####
-boruta_result <- Boruta(SHOTISGOAL ~ ., data = train_data, doTrace = 1,)
+boruta_result <- Boruta(variables, data = train_data_clean, doTrace = 1,)
 plot(boruta_result, las = 2, cex.axis = 0.7)
 
 final_vars <- getSelectedAttributes(boruta_result, withTentative = FALSE)
@@ -179,34 +185,27 @@ allshotevents <- cbind(allshotevents, dummy_data)
 x_variables <- c(
   "shot_angle", 
   "shot_distance", 
-  "SHOTBODYPART",
-  "Team_Ranking"
+  "SHOTBODYPART.head_or_other",
+  "SHOTBODYPART.left_foot",
+  "SHOTBODYPART.right_foot"
 )
 
 x_variables <- c(
   "shot_angle", 
   "shot_distance", 
-  "SHOTBODYPART.head_or_other",
-  "SHOTBODYPART.left_foot",
-  "SHOTBODYPART.right_foot",
+  "SHOTBODYPART",
   "Team_Ranking",
   "overall",
   "potential",
-  "LOCATIONX",
-  "LOCATIONY"
+  "POSSESSIONDURATION",
+  "POSSESSIONEVENTSNUMBER",
+  "POSSESSIONEVENTINDEX"
 )
 
 x_variables <- c(
   "shot_angle", 
   "shot_distance", 
-  "SHOTBODYPART.head_or_other",
-  "SHOTBODYPART.left_foot",
-  "SHOTBODYPART.right_foot",
-  "LOCATIONX",
-  "POSSESSIONDURATION",
-  "POSSESSIONEVENTSNUMBER",
-  "POSSESSIONEVENTINDEX",
-  "LOCATIONY"
+  "SHOTBODYPART"
 )
 
 #XGB AUV: 0.8
@@ -215,9 +214,7 @@ x_variables <- c(
   "shot_distance", 
   "SHOTBODYPART.head_or_other",
   "SHOTBODYPART.left_foot",
-  "SHOTBODYPART.right_foot",
-  "LOCATIONX",
-  "LOCATIONY"
+  "SHOTBODYPART.right_foot"
 )
 
 variables <- as.formula(paste("SHOTISGOAL ~", paste(x_variables, collapse = " + ")))
@@ -324,11 +321,14 @@ glm_train <- glm(variables,
 summary(glm_train)
 # multicollinearity
 vif(glm_train)
+#saveRDS(glm_train,"xG/Models_RDS/glm_train.rds")
 
 glm_probs <- predict(glm_train, newdata = test_data_clean, type = "response")
 
 glm_auc <- auc(test_data_clean$SHOTISGOAL, glm_probs)
 cat("AUC for GLM:", round(glm_auc, 4), "\n")
+
+
 
 ##### Singular Tree #####
 simple_tree <- rpart(variables,
@@ -339,7 +339,7 @@ simple_tree <- rpart(variables,
 tree_probs <- predict(simple_tree, newdata = test_data_clean, type = "prob")[, "1"]
 tree_auc <- auc(test_data_clean$SHOTISGOAL, tree_probs)
 cat("AUC for enkelt beslutningstræ:", round(tree_auc, 4), "\n")
-
+#saveRDS(simple_tree,"xG/Models_RDS/simple_tree.rds")
 
 ##### Random Forest #####
 colSums(is.na(train_data_yn))
@@ -357,7 +357,7 @@ tuned_rf <- train(variables,
                   trControl = ctrl, 
                   tuneGrid = expand.grid(mtry = 1:length(x_variables)))
 
-best_mtry <- tuned_rf$bestTune[1,1]
+  best_mtry <- tuned_rf$bestTune[1,1]
 print(best_mtry)
 
 # tree depth
@@ -408,9 +408,13 @@ rf_model_final <- train(
 
 varImpPlot(rf_model)
 # Forudsig sandsynligheder fra modellen
+#rf_model_final <- readRDS("xG/Models_RDS/rf_model_final.rds")
 rf_test <- predict(rf_model_final, test_data_yn, type = "prob")[, "yes"]
 rf_auc <- auc(test_data_yn$SHOTISGOAL, rf_test)
 cat("AUC for Random Forest:", round(rf_auc, 4), "\n")
+#saveRDS(rf_model_final,"xG/Models_RDS/rf_model_final.rds")
+
+
 
 ##### XGBoost #####
 train_data_yn <- train_data_clean
@@ -424,18 +428,28 @@ test_data_yn$SHOTISGOAL <- factor(test_data_yn$SHOTISGOAL,
                                      labels = c("no", "yes"))
 # https://youtu.be/qjeUhuvkbHY?si=-bYul2KuvoOnusPo&t=763
 grid_tune <- expand.grid(
-  nrounds = c(500, 1000, 1500),                # Flere iterationer
-  max_depth = c(2, 4, 6),                      # Dybere træer
-  eta = c(0.005, 0.01),                  # Flere læringsrater
-  gamma = c(0.25, 0.5, 0.75),            # Fra ingen pruning til aggressiv pruning
-  colsample_bytree = c(0.3, 0.5, 0.7, 0.8),    # Flere trætræks-sampler
+  nrounds = c(1000, 1500, 2000),                # Flere iterationer
+  max_depth = c(2, 4),                      # Dybere træer
+  eta = c(0.001, 0.005),                  # Flere læringsrater
+  gamma = c(0.5, 0.75, 1.0),            # Fra ingen pruning til aggressiv pruning
+  colsample_bytree = c(0.5, 0.7, 0.8),    # Flere trætræks-sampler
   min_child_weight = c(2, 3),               # Mindre = mere kompleks
-  subsample = c(0.5, 0.75, 1.0)                # Hvor mange samples pr. træ
+  subsample = c(0.25, 0.5, 0.75)                # Hvor mange samples pr. træ
+)
+
+grid_tune <- expand.grid(
+  nrounds = c(500, 1000, 1500, 2000),              # antal iterationer
+  max_depth = c(3, 4, 5, 6),                       # trædybde
+  eta = c(0.001, 0.005, 0.01),                     # læringsrate
+  gamma = c(0, 0.25, 0.5, 0.75, 1.0),              # pruning aggressivitet
+  colsample_bytree = c(0.5, 0.7, 0.9),             # hvor stor andel af features per træ
+  min_child_weight = c(1, 2, 3),                   # minimum observationer i en leaf
+  subsample = c(0.5, 0.75, 1.0)                    # andel af data brugt per iteration
 )
 
 
 train_control <- trainControl(method = "cv",
-                              number=5,
+                              number=3,
                               classProbs = TRUE,
                               summaryFunction = twoClassSummary,
                               verboseIter = TRUE,
@@ -448,10 +462,11 @@ xgb_tune <- train(set.seed(1980),
                   method = "xgbTree",
                   metric = "ROC",
                   verbose = TRUE)
-
 xgb_tune$bestTune
+#xgb_tune_backup <- xgb_tune$bestTune
 
-train_control <- trainControl(method = "cv",
+
+train_control <- trainControl(method = "none",
                               number = 3,
                               classProbs = TRUE,
                               summaryFunction = twoClassSummary,
@@ -467,8 +482,7 @@ final_grid <- expand.grid(
                           colsample_bytree = xgb_tune$bestTune$colsample_bytree,
                           min_child_weight = xgb_tune$bestTune$min_child_weight,
                           subsample = xgb_tune$bestTune$subsample)
-xgb_model <- train(set.seed(1980),
-                   x = train_data_yn[,-1],
+xgb_model <- train(x = train_data_yn[,-1],
                    y = train_data_yn[,1],
                    trControl = train_control,
                    tuneGrid = final_grid,
@@ -477,10 +491,128 @@ xgb_model <- train(set.seed(1980),
                    verbose = TRUE
                    )
 summary(predict(xgb_model, test_data_yn, type = "prob")[, "yes"])
+xgb_model <- readRDS("xgb_model_backup1.rds")
+
+
 
 xgb_pred <- predict(xgb_model, test_data_yn, type = "prob")[, "yes"]
 xgb_auc <- auc(test_data_yn$SHOTISGOAL, xgb_pred)
 cat("Endelig AUC for tuned XGBoost:", round(xgb_auc, 4), "\n")
+
+
+#### Other XGBoost ####
+# Konverter SHOTISGOAL til 0/1 (hvis ikke allerede)
+train_data_yn$target <- ifelse(train_data_yn$SHOTISGOAL == "yes", 1, 0)
+test_data_yn$target <- ifelse(test_data_yn$SHOTISGOAL == "yes", 1, 0)
+
+# Fjern responsvariabel fra feature matrix
+X_train <- as.matrix(train_data_yn[, x_variables])
+X_test <- as.matrix(test_data_yn[, x_variables])
+y_train <- train_data_yn$target
+y_test <- test_data_yn$target
+
+# Lav DMatrix
+dtrain <- xgb.DMatrix(data = X_train, label = y_train)
+dtest <- xgb.DMatrix(data = X_test, label = y_test)
+
+# Grid med 3-4 kombinationer pr. parameter
+param_grid <- expand.grid(
+  eta = c(0.01, 0.05, 0.1),
+  max_depth = c(2, 4, 6),
+  gamma = c(0, 0.25, 0.5),
+  colsample_bytree = c(0.7, 1.0),
+  min_child_weight = c(1, 3),
+  subsample = c(0.75, 1.0)
+)
+
+# Tom dataframe til resultater
+results <- data.frame(
+  eta = numeric(),
+  max_depth = integer(),
+  gamma = numeric(),
+  colsample_bytree = numeric(),
+  min_child_weight = numeric(),
+  subsample = numeric(),
+  best_iter = integer(),
+  AUC = numeric()
+)
+
+# Loop over grid
+for (i in 1:nrow(param_grid)) {
+  cat("\n Træner model", i, "af", nrow(param_grid), "...\n")
+  params <- list(
+    booster = "gbtree",
+    objective = "binary:logistic",
+    eval_metric = "auc",
+    eta = param_grid$eta[i],
+    max_depth = param_grid$max_depth[i],
+    gamma = param_grid$gamma[i],
+    colsample_bytree = param_grid$colsample_bytree[i],
+    min_child_weight = param_grid$min_child_weight[i],
+    subsample = param_grid$subsample[i]
+  )
+  
+  set.seed(1980)
+  model <- xgb.train(
+    params = params,
+    data = dtrain,
+    nrounds = 2000,
+    watchlist = list(eval = dtest, train = dtrain),
+    early_stopping_rounds = 50,
+    verbose = 0,
+    maximize = TRUE
+  )
+  
+  pred <- predict(model, dtest)
+  auc_score <- auc(y_test, pred)
+  
+  results <- rbind(results, data.frame(
+    eta = params$eta,
+    max_depth = params$max_depth,
+    gamma = params$gamma,
+    colsample_bytree = params$colsample_bytree,
+    min_child_weight = params$min_child_weight,
+    subsample = params$subsample,
+    best_iter = model$best_iteration,
+    AUC = auc_score
+  ))
+  
+  cat("AUC:", round(auc_score, 4), "efter", model$best_iteration, "iterationer\n")
+}
+
+# Sortér og vis top 5
+results$AUC <- as.numeric(results$AUC)
+results <- results[order(-results$AUC), ]
+print(head(results, 5))
+
+
+best_params <- results[1, ]
+
+final_params <- list(
+  booster = "gbtree",
+  objective = "binary:logistic",
+  eval_metric = "auc",
+  eta = best_params$eta,
+  max_depth = best_params$max_depth,
+  gamma = best_params$gamma,
+  colsample_bytree = best_params$colsample_bytree,
+  min_child_weight = best_params$min_child_weight,
+  subsample = best_params$subsample
+)
+
+set.seed(1980)
+final_model <- xgb.train(
+  params = final_params,
+  data = dtrain,
+  nrounds = best_params$best_iter,
+  verbose = 1
+)
+
+final_pred <- predict(final_model, dtest)
+final_auc <- auc(y_test, final_pred)
+cat("Endelig test-AUC:", round(as.numeric(final_auc), 4), "\n")
+
+
 
 
 
@@ -496,7 +628,7 @@ print(auc_wyscout)
 best_threshold <- 0.35
 
 # Udpeg feature-kolonner (samme som i træning)
-predictors <- allshotevents[, colnames(train_data_yn[,-1])]
+predictors <- allshotevents[, colnames(train_data_yn[,-c(1,7)])]
 
 # Predict med XGBoost (giver sandsynligheder for "yes")
 xg_values <- predict(xgb_model, newdata = predictors, type = "prob")[, "yes"]
@@ -516,7 +648,22 @@ true_class <- factor(ifelse(allshotevents$SHOTISGOAL == "1", "yes", "no"),
 rf_confusion <- confusionMatrix(pred_class, true_class)
 rf_confusion
 
+# -- Lav forudsigelser som faktor (cutoff = 0.35) --
+xgb_preds_label <- ifelse(xgb_pred > 0.30, "yes", "no") %>% factor(levels = c("no", "yes"))
+wyscout_preds_label <- ifelse(allshot$SHOTXG > 0.35, "1", "0") %>% factor(levels = c("0", "1"))
 
+# -- Faktiske labels --
+actual_labels <- test_data_yn$SHOTISGOAL %>% factor(levels = c("no", "yes"))
+
+# -- Konfusionsmatrix for XGBoost --
+conf_matrix_xgb <- confusionMatrix(xgb_preds_label, actual_labels, positive = "yes")
+
+# -- Konfusionsmatrix for WyScout --
+conf_matrix_wyscout <- confusionMatrix(wyscout_preds_label, actual_labels, positive = "1")
+
+# -- Print begge --
+conf_matrix_xgb
+conf_matrix_wyscout
 
 #### Evaluating ####
 # test nye sæson
@@ -577,6 +724,11 @@ round(prop.table(table(test_2425$SHOTISGOAL)),4)
 xgb_pred_2425 <- predict(xgb_model, test_2425, type = "prob")[, "yes"]
 xgb_auc_2425 <- auc(test_2425$SHOTISGOAL, xgb_pred_2425)
 cat("Endelig AUC for tuned XGBoost 2024 / 2025:", round(xgb_auc_2425, 4), "\n")
+
+roc_wyscout <- roc(test_data$SHOTISGOAL, test_data$SHOTXG)
+auc_wyscout <- auc(roc_wyscout)
+print(auc_wyscout)
+
 
 
 roc_wyscout_2425 <- roc(allshotevents_2425$SHOTISGOAL, allshotevents_2425$SHOTXG)
@@ -728,3 +880,19 @@ xgb_model_final <- xgboost(
 xgb_pred <- predict(xgb_model_final, x_test, type = "prob")
 xgb_auc <- auc(y_test, xgb_pred)
 cat("Endelig AUC for tuned XGBoost:", round(xgb_auc, 4), "\n")
+
+
+
+
+team_summary <- allshotevents %>%
+  group_by(TEAMNAME.x) %>%
+  summarise(
+    TeamRanking = mean(Team_Ranking, na.rm = TRUE),
+    TotalShots = n(),
+    UniqueGames = n_distinct(MATCH_WYID.x),
+    AvgShotsPerGame = round(TotalShots / UniqueGames, 2),
+    ImageURL = first(IMAGEDATAURL),
+    .groups = "drop"
+  )
+
+team_summary

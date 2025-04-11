@@ -99,6 +99,8 @@ for (page in 1:last_page){
 
 #saveRDS(players_df, "xG/Scraped_Data/players_fifaindex.RDS")
 
+players_df <- readRDS("xG/Scraped_Data/players_fifaindex.RDS")
+
 #clean
 players_df$team <- gsub(" FIFA 24","", players_df$team)
 
@@ -143,6 +145,8 @@ unmatched_players <- matched_df %>%
 
 count(unmatched_players)
 head(unmatched_players, 10)
+
+# Could add teamname somewhere, so that it doesnt add names that are close on different teams
 
 
 
