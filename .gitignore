@@ -54,3 +54,12 @@ rsconnect/
 # Data
 data/
 
+xG/Shiny/xG_ModelDashboard/All_Passes_player_stat_clusters.rds
+xG/Shiny/xG_ModelDashboard/allshotevents.rds
+xG/Shiny/xG_ModelDashboard/glm_probs.rds
+xG/Shiny/xG_ModelDashboard/rf_test.rds
+xG/Shiny/xG_ModelDashboard/test_data.rds
+xG/Shiny/xG_ModelDashboard/test_data_yn.rds
+xG/Shiny/xG_ModelDashboard/tree_probs.rds
+xG/Shiny/xG_ModelDashboard/xgb_pred.rds
+
