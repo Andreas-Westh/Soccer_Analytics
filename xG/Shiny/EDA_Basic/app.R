@@ -7,6 +7,32 @@ library(purrr)
 library(tidyverse)
 library(ggimage)
 
+
+
+
+# -- Farver til body_parts -----------------------------------------------------------
+body_colors <- c(
+  "head_or_other" = "#FDBA21",  # gul
+  "left_foot" = "#0D1C8A",      # blå
+  "right_foot" = "#FC7753"      # rødlig
+)
+
+
+# Plot
+ggplot(allshotevents, aes(x = LOCATIONX, y = LOCATIONY)) +
+  annotate_pitch(dimensions = pitch_wyscout, colour = "grey80", fill = "white") +
+  geom_point(aes(color = SHOTBODYPART), alpha = 0.25, size = 3) +
+  scale_color_manual(values = body_colors) +
+  coord_flip(xlim = c(50, 100), ylim = c(0, 100)) +
+  theme_pitch() +
+  labs(title = "Skudpositioner opdelt efter kropsdel", color = "Kropsdel") +
+  theme(
+    plot.title = element_text(hjust = 0.5, face = "bold"),
+    legend.position = "bottom"
+  )
+
+
+
 # -- UI -----------------------------------------------------------
 ui <- dashboardPage(
   dashboardHeader(title = "Skuddata Superligaen"),
@@ -61,9 +87,32 @@ ui <- dashboardPage(
                   box(title = "Afstandslinjer på banen", width = 12, solidHeader = TRUE, status = "warning",
                       plotOutput("distance_lines_plot", height = "300px"))
                 )
+              ),
+              fluidRow(
+                conditionalPanel(
+                  condition = "input.plot_choice == 'shot_angle'",
+                  box(title = "Visuel forklaring på skudvinkler", width = 12, solidHeader = TRUE, status = "warning",
+                      plotOutput("angle_visual_plot", height = "400px"))
+                )
+              ),
+              fluidRow(
+                conditionalPanel(
+                  condition = "input.plot_choice == 'body_part'",
+                  
+                  # Først tabellen
+                  box(title = "Afstande fordelt på kropsdel", width = 12, solidHeader = TRUE, status = "warning",
+                      tableOutput("body_distance_table")),
+                  
+                  # Så plot
+                  box(title = "Skudpositioner fordelt på kropsdel", width = 12, solidHeader = TRUE, status = "warning",
+                      plotOutput("body_location_plot", height = "350px"))
+                )
               )
-  ))))
-  
+              
+              
+              
+      ))))
+
 
 # -- Konklusionstekster -------------------------------------------
 get_conclusion <- function(var) {
@@ -72,7 +121,7 @@ get_conclusion <- function(var) {
          "location_heatmap" = "Konklusion: xxxx",
          "shot_angle" = "Konklusion: xxxx",
          "shot_distance" = "Konklusion: xxxx",
-         "body_part" = "Konklusion: xxxx",
+         "body_part" = "Konklusion: Langt de fleste skud tages med fødderne – især højre fod bliver brugt oftest. Skud med hovedet (eller andre dele af kroppen) sker typisk tættere på mål, hvilket giver god mening, da de ofte kommer fra dødbolde som hjørnespark eller frispark. Fodskud sker derimod oftere i åbent spil og fra længere afstande. Derfor giver det god mening at bruge SHOTBODYPART som en forklarende variabel i en xG-model, da den fanger forskelle i både situation og afstand.",
          "team_ranking" = "Konklusion: xxxx",
          "overall" = "Konklusion: xxxx",
          "potential" = "Konklusion: xxxx",
@@ -128,31 +177,61 @@ make_plot <- function(data, var, avg_on) {
                theme(plot.title = element_text(hjust = 0.5, face = "bold"))
              
            } else {
+             mean_angle <- mean(data$shot_angle, na.rm = TRUE)
+             
              ggplot(data, aes(x = shot_angle)) +
-               geom_histogram(binwidth = 5, fill = "steelblue", color = "white") +
-               scale_x_continuous(breaks = seq(0, 180, 30)) +
-               labs(
-                 x = "Skudvinkel (grader)",
-                 y = "Antal skud",
-                 title = "Hvor skarpe vinkler skyder spillerne fra?"
+               geom_histogram(
+                 bins = 30,
+                 fill = "#0D1C8A",
+                 color = "white",
+                 alpha = 0.9
                ) +
-               theme_minimal() +
-               theme(plot.title = element_text(hjust = 0.5, face = "bold"))
+               geom_vline(
+                 xintercept = mean_angle,
+                 color = "#FDBA21",
+                 linewidth = 1.3
+               ) +
+               annotate("text",
+                        x = mean_angle + 2,
+                        y = Inf,
+                        label = paste0("Gennemsnitlig vinkel: ", round(mean_angle, 1), "°"),
+                        vjust = 2,
+                        hjust = -0.1,
+                        color = "#FDBA21",
+                        fontface = "bold",
+                        size = 3.5) +
+               labs(
+                 x = "Vinkel mod mål (grader)",
+                 y = "Antal skud",
+                 title = "Fordeling af skudvinkler"
+               ) +
+               theme_minimal(base_size = 13) +
+               theme(
+                 plot.title = element_text(hjust = 0.5, face = "bold")
+               )
            }
          },
          
          # Shot distance
          "shot_distance" = {
            if (avg_on) {
-             data %>%
+             kamp_means <- data %>%
                group_by(MATCH_WYID.x) %>%
-               summarise(mean_dist = mean(shot_distance, na.rm = TRUE)) %>%
+               summarise(mean_dist = mean(shot_distance, na.rm = TRUE))
+             
+             total_avg <- mean(kamp_means$mean_dist, na.rm = TRUE)
+             
+             kamp_means %>%
                mutate(distance_group = cut(mean_dist,
                                            breaks = c(0,10,20,30,40,Inf),
                                            labels = c("0–10m", "10–20m", "20–30m", "30–40m", "40m+"),
                                            right = FALSE)) %>%
                ggplot(aes(x = mean_dist, fill = distance_group)) +
                geom_histogram(binwidth = 2, color = "white") +
+               geom_vline(xintercept = total_avg, color = "#FDBA21", linewidth = 1.2) +
+               annotate("text", x = total_avg + 1.5, y = Inf,
+                        label = paste0("Gns.: ", round(total_avg, 1), "m"),
+                        vjust = 2, hjust = 0, fontface = "bold", size = 3.5, color = "#FDBA21") +
                scale_fill_manual(values = c("#00296b", "#003f88", "#00509d", "#fdc500", "#ffd500")) +
                scale_x_continuous(breaks = seq(0, 70, 10)) +
                labs(
@@ -165,6 +244,8 @@ make_plot <- function(data, var, avg_on) {
                theme(plot.title = element_text(hjust = 0.5, face = "bold"))
              
            } else {
+             total_avg <- mean(data$shot_distance, na.rm = TRUE)
+             
              data %>%
                mutate(distance_group = cut(shot_distance,
                                            breaks = c(0,10,20,30,40,Inf),
@@ -172,6 +253,10 @@ make_plot <- function(data, var, avg_on) {
                                            right = FALSE)) %>%
                ggplot(aes(x = shot_distance, fill = distance_group)) +
                geom_histogram(binwidth = 2, color = "white") +
+               geom_vline(xintercept = total_avg, color = "#FDBA21", linewidth = 1.2) +
+               annotate("text", x = total_avg + 1.5, y = Inf,
+                        label = paste0("Gns.: ", round(total_avg, 1), "m"),
+                        vjust = 2, hjust = 0, fontface = "bold", size = 3.5, color = "#FDBA21") +
                scale_fill_manual(values = c("#00296b", "#003f88", "#00509d", "#fdc500", "#ffd500")) +
                scale_x_continuous(breaks = seq(0, 70, 10)) +
                labs(
@@ -185,7 +270,8 @@ make_plot <- function(data, var, avg_on) {
            }
          },
          
-
+         
+         
          
          # Body part
          "body_part" = {
@@ -195,15 +281,19 @@ make_plot <- function(data, var, avg_on) {
                summarise(count = n(), .groups = "drop") %>%
                group_by(SHOTBODYPART) %>%
                summarise(avg = mean(count)) %>%
-               ggplot(aes(x = SHOTBODYPART, y = avg)) +
-               geom_col(aes(fill = "SHOTBODYPART")) +
+               ggplot(aes(x = SHOTBODYPART, y = avg, fill = SHOTBODYPART)) +
+               geom_col() +
+               scale_fill_manual(values = body_colors) +
                labs(x = "Kropsdel", y = "Gennemsnit pr. kamp", title = "Skud pr. kropsdel (gennemsnit)") +
-               theme_minimal()
+               theme_minimal() +
+               theme(plot.title = element_text(hjust = 0.5, face = "bold"))
            } else {
-             ggplot(data, aes(x = SHOTBODYPART)) +
-               geom_bar(aes(fill = "SHOTBODYPART")) +
+             ggplot(data, aes(x = SHOTBODYPART, fill = SHOTBODYPART)) +
+               geom_bar() +
+               scale_fill_manual(values = body_colors) +
                labs(x = "Kropsdel", y = "Antal skud", title = "Fordeling af skud pr. kropsdel") +
-               theme_minimal()
+               theme_minimal() +
+               theme(plot.title = element_text(hjust = 0.5, face = "bold"))
            }
          },
          
@@ -445,39 +535,119 @@ server <- function(input, output, session) {
   
   # distance lines
   output$distance_lines_plot <- renderPlot({
+    goal_x <- 100
+    goal_y <- 50
+    radii <- c(10, 20, 30, 40, 50)
+    colors <- c("#00296b", "#003f88", "#00509d", "#fdc500", "#ffd500")  # De gamle farver
+    
+    make_semicircle <- function(radius, center_x = goal_x, center_y = goal_y, n = 300) {
+      angles <- seq(-pi/2, pi/2, length.out = n)
+      data.frame(
+        x = center_x - radius * cos(angles),
+        y = center_y + radius * sin(angles)
+      )
+    }
+    
+    # Kombiner farver og radius
+    circles <- purrr::pmap_dfr(list(r = radii, col = colors), function(r, col) {
+      make_semicircle(r) %>%
+        mutate(group = r, color = col)
+    })
+    
+    label_data <- circles %>%
+      group_by(group, color) %>%
+      slice(1) %>%
+      ungroup() %>%
+      mutate(label = paste0(group, "m"))
+    
     ggplot() +
       annotate_pitch(dimensions = pitch_wyscout, colour = "grey80", fill = "white") +
-      
-      # Linjer
-      geom_vline(xintercept = 90, linetype = "dashed", color = "#00296b", size = 1) +
-      geom_vline(xintercept = 80, linetype = "dashed", color = "#003f88", size = 1) +
-      geom_vline(xintercept = 70, linetype = "dashed", color = "#00509d", size = 1) +
-      geom_vline(xintercept = 60, linetype = "dashed", color = "#fdc500", size = 1) +
-      geom_vline(xintercept = 50, linetype = "dashed", color = "#ffd500", size = 1) +
-      
-      # Tekst
-      annotate("text", x = 90, y = 50, label = "10m", angle = 90, vjust = -0.5, size = 4,
-               fontface = "bold", color = "#00296b") +
-      annotate("text", x = 80, y = 50, label = "20m", angle = 90, vjust = -0.5, size = 4,
-               fontface = "bold", color = "#003f88") +
-      annotate("text", x = 70, y = 50, label = "30m", angle = 90, vjust = -0.5, size = 4,
-               fontface = "bold", color = "#00509d") +
-      annotate("text", x = 60, y = 50, label = "40m", angle = 90, vjust = -0.5, size = 4,
-               fontface = "bold", color = "#fdc500") +
-      annotate("text", x = 50, y = 50, label = "50m", angle = 90, vjust = -0.5, size = 4,
-               fontface = "bold", color = "#ffd500") +
-      
+      geom_path(data = circles, aes(x = x, y = y, group = group, color = color), linewidth = 1) +
+      geom_text(data = label_data, aes(x = x, y = y, label = label, color = color),
+                vjust = -0.5, hjust = 0.8, fontface = "bold", size = 3.5) +
+      scale_color_identity() +  # <- NØGLEN TIL RIGTIGE FARVER
       coord_flip(xlim = c(50, 100), ylim = c(0, 100)) +
       theme_pitch() +
-      labs(title = "Afstandsstreger fra mållinjen") +
-      theme(plot.title = element_text(hjust = 0.5, face = "bold"))
+      labs(title = "Afstandscirkler fra mållinjen") +
+      theme(
+        plot.title = element_text(hjust = 0.5, face = "bold"),
+        legend.position = "none"
+      )
   })
+  
+  
   
   
   
   output$conclusion_text <- renderText({
     get_conclusion(input$plot_choice)
   })
+  
+  output$angle_visual_plot <- renderPlot({
+    # Målstolper
+    goal_left <- c(x = 100, y = 44.285)
+    goal_right <- c(x = 100, y = 55.715)
+    
+    vinkel_eksempler <- data.frame(
+      label = c("Skarp vinkel (7°)", "Gennemsnitlig vinkel (34°)", "Åben vinkel (78°)"),
+      x = c(69, 91, 93),
+      y = c(91, 60, 50)
+    )
+    
+    ggplot() +
+      annotate_pitch(dimensions = pitch_wyscout, colour = "grey80", fill = "gray90") +
+      geom_segment(data = vinkel_eksempler,
+                   aes(x = x, y = y, xend = goal_left["x"], yend = goal_left["y"], color = label),
+                   arrow = arrow(length = unit(0.15, "cm"))) +
+      geom_segment(data = vinkel_eksempler,
+                   aes(x = x, y = y, xend = goal_right["x"], yend = goal_right["y"], color = label),
+                   arrow = arrow(length = unit(0.15, "cm"))) +
+      geom_point(data = vinkel_eksempler, aes(x = x, y = y, color = label), size = 4) +
+      geom_text(data = vinkel_eksempler, aes(x = x - 1.5, y = y, label = label, color = label),
+                hjust = 1, fontface = "bold", show.legend = FALSE) +
+      coord_flip(xlim = c(65, 105), ylim = c(0, 100)) +
+      theme_pitch() +
+      labs(title = "Visuel sammenligning af skudvinkler", color = NULL) +
+      theme(
+        plot.title = element_text(hjust = 0.5, face = "bold"),
+        legend.position = "none"
+      )
+  })
+  
+  output$body_location_plot <- renderPlot({
+    plot_data <- allshotevents %>%
+      mutate(body_group = case_when(
+        SHOTBODYPART == "head_or_other" ~ "Hoved/andet",
+        SHOTBODYPART %in% c("left_foot", "right_foot") ~ "Ben"
+      ))
+    
+    ggplot(plot_data, aes(x = LOCATIONX, y = LOCATIONY, fill = body_group)) +
+      annotate_pitch(dimensions = pitch_wyscout, colour = "grey80", fill = "white") +
+      geom_bin2d(binwidth = c(2, 2), alpha = 0.6) +
+      scale_fill_manual(
+        values = c("Hoved/andet" = "#FDBA21", "Ben" = "#0D1C8A"),
+        name = "Kropsdel"
+      ) +
+      coord_flip(xlim = c(50, 100), ylim = c(0, 100)) +
+      theme_pitch() +
+      labs(title = "Skudpositioner opdelt i ben og hoved/andet") +
+      theme(plot.title = element_text(hjust = 0.5, face = "bold"))
+  })
+  
+  output$body_distance_table <- renderTable({
+    allshotevents %>%
+      group_by(SHOTBODYPART) %>%
+      summarise(
+        Antal = n(),
+        `Gns. afstand (m)` = round(mean(shot_distance, na.rm = TRUE), 1),
+        `SD (afstand)` = round(sd(shot_distance, na.rm = TRUE), 1)
+      )
+  })
+  
+  
+
 }
+
+
 
 shinyApp(ui, server)
