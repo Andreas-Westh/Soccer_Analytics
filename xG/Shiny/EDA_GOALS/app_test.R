@@ -65,11 +65,13 @@ ui <- dashboardPage(
       # Intro-tab
       tabItem(tabName = "intro",
               h2("Velkommen til skuddata-dashboardet"),
-              p("Denne applikation giver dig mulighed for at udforske skuddata fra Superligens 2023/2024 sæson."),
+              p("Denne applikation giver dig mulighed for at udforske skuddata fra Superligaens 2023/2024-sæson med særligt fokus på, hvilke faktorer der adskiller mål fra ikke-mål."),
+              p("Ved at undersøge fordelingen af skud ud fra forskellige variabler som afstand, vinkel og kropsdel – opdelt på om afslutningen førte til mål eller ej – kan du få indsigt i, hvad der øger sandsynligheden for en succesfuld afslutning."),
               tags$ul(
-                tags$li("Brug menuen i venstre side til at vælge en variabel."),
-                tags$li("Tjek 'Vis opdelt på træning/test' for at sammenligne splits."),
-                tags$li("Hver variabel vises som et plot og med en tilhørende konklusion.")
+                tags$li("Brug menuen i venstre side til at vælge én variabel ad gangen."),
+                tags$li("Tjek 'Vis gennemsnit pr. kamp' for at se mønstre baseret på holdniveau."),
+                tags$li("Tjek 'Vis opdelt på træning/test' for at se forskelle i dine splits."),
+                tags$li("Hver variabel vises som plot, en forklarende konklusion og en oversigtstabel.")
               ),
               br(),
               h3("Hvad viser de forskellige variabler?"),
