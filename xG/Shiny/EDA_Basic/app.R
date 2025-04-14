@@ -35,7 +35,7 @@ ggplot(allshotevents, aes(x = LOCATIONX, y = LOCATIONY)) +
 
 # -- UI -----------------------------------------------------------
 ui <- dashboardPage(
-  dashboardHeader(title = "Skuddata Superligaen"),
+  dashboardHeader(title = "Skuddata i Superligaen"),
   dashboardSidebar(
     sidebarMenu(
       id = "plot_choice",
@@ -46,8 +46,7 @@ ui <- dashboardPage(
       menuItem("Afstand til mål", tabName = "shot_distance", icon = icon("ruler-horizontal")),
       menuItem("Kropsdel", tabName = "body_part", icon = icon("running")),
       menuItem("Team Ranking", tabName = "team_ranking", icon = icon("sort-amount-down-alt")),
-      menuItem("Overall", tabName = "overall", icon = icon("user-check")),
-      menuItem("Potential", tabName = "potential", icon = icon("star-half-alt")),
+      menuItem("Spiller-rating", tabName = "player_rating", icon = icon("chart-bar")),
       menuItem("Antal events i possession", tabName = "possession_events", icon = icon("list-ol")),
       menuItem("Index for possession", tabName = "possession_index", icon = icon("fingerprint")),
       menuItem("Varighed af possession", tabName = "possession_duration", icon = icon("clock")),
@@ -107,10 +106,61 @@ ui <- dashboardPage(
                   box(title = "Skudpositioner fordelt på kropsdel", width = 12, solidHeader = TRUE, status = "warning",
                       plotOutput("body_location_plot", height = "350px"))
                 )
+              ),
+              fluidRow(
+                conditionalPanel(
+                  condition = "input.plot_choice == 'team_ranking'",
+                  box(title = "Oversigt over holdenes skudstatistik", width = 12, solidHeader = TRUE, status = "warning",
+                      htmlOutput("team_ranking_summary_ui"))
+                )
+              ),
+              fluidRow(
+                conditionalPanel(
+                  condition = "input.plot_choice == 'player_rating'",
+                  
+                  # Tabel med statistik
+                  box(title = "Gennemsnit og variation i spiller-ratings", width = 12, solidHeader = TRUE, status = "info",
+                      tableOutput("rating_table"))
+                )
+              ),
+              fluidRow(
+                conditionalPanel(
+                  condition = "input.plot_choice == 'possession_events'",
+                  box(title = "Opsummerende statistik for antal events i possession", 
+                      width = 12, solidHeader = TRUE, status = "warning",
+                      tableOutput("possession_events_table"))
+                )
+              ),
+              fluidRow(
+                conditionalPanel(
+                  condition = "input.plot_choice == 'possession_index'",
+                  box(
+                    title = "Beskrivende statistik for possession index",
+                    width = 12,
+                    solidHeader = TRUE,
+                    status = "warning",
+                    tableOutput("possession_index_table")
+                  )
+                )
+              ),
+              fluidRow(
+                conditionalPanel(
+                  condition = "input.plot_choice == 'possession_duration'",
+                  
+                  # -- Tabel-boks til Wyscout-opdeling --
+                  box(
+                    title = "Opsummerende statistik opdelt efter Wyscout-varighedskategorier",
+                    width = 12,
+                    solidHeader = TRUE,
+                    status = "warning",
+                    tableOutput("duration_summary")
+                  )
+                )
               )
               
               
               
+
       ))))
 
 
@@ -119,15 +169,23 @@ get_conclusion <- function(var) {
   switch(var,
          "location_points" = "Konklusion: xxxx",
          "location_heatmap" = "Konklusion: xxxx",
-         "shot_angle" = "Konklusion: xxxx",
-         "shot_distance" = "Konklusion: xxxx",
-         "body_part" = "Konklusion: Langt de fleste skud tages med fødderne – især højre fod bliver brugt oftest. Skud med hovedet (eller andre dele af kroppen) sker typisk tættere på mål, hvilket giver god mening, da de ofte kommer fra dødbolde som hjørnespark eller frispark. Fodskud sker derimod oftere i åbent spil og fra længere afstande. Derfor giver det god mening at bruge SHOTBODYPART som en forklarende variabel i en xG-model, da den fanger forskelle i både situation og afstand.",
-         "team_ranking" = "Konklusion: xxxx",
-         "overall" = "Konklusion: xxxx",
-         "potential" = "Konklusion: xxxx",
-         "possession_events" = "Konklusion: xxxx",
-         "possession_index" = "Konklusion: xxxx",
-         "possession_duration" = "Konklusion: xxxx",
+         "shot_angle" = "Vinklen på skuddet er helt afgørende for, hvor farlig en afslutning er. Jo større vinkel spilleren har mod målet, jo lettere er det at placere bolden udenom målmanden. Gennemsnittet ligger omkring 34 grader, men med stor variation – hvilket passer godt med, at spillere skyder fra både åbne og meget skæve vinkler. De skarpeste vinkler opstår typisk ude ved siden af feltet, mens de åbne vinkler ofte ses tættere på mål og midt i feltet. Det underbygger, at skudvinkel er en vigtig variabel i en xG-model, da den siger noget om, hvor 'åben' chancen reelt er.",
+         "shot_distance" = "Afstanden til målet er en af de mest oplagte og centrale forklarende variable, når man forsøger at beskrive kvaliteten af en afslutning. Vores data viser, at den gennemsnitlige afslutning bliver taget fra omkring 19 meter, men med stor variation – nogle afslutninger sker helt tæt under mål, mens andre bliver fyret af op mod 60 meter ude fra banen.
+
+Histogrammet afslører, at skuddene især samler sig i intervallet 10–25 meter, mens skud udenfor boksen og helt tæt under mål er mere sjældne. De afstandscirkler vi har lagt ind på banen, viser tydeligt hvordan disse afstande fordeler sig visuelt – og understreger, at det typisk er i det centrale område foran målet, at vi ser flest afslutninger.
+
+Afstand er dermed en naturlig og vigtig kandidat til enhver xG-model, netop fordi den på enkel vis indrammer noget af det, der gør en afslutning mere eller mindre fordelagtig.",
+         "body_part" = "Langt de fleste skud tages med fødderne – især højre fod bliver brugt oftest. Skud med hovedet (eller andre dele af kroppen) sker typisk tættere på mål, hvilket giver god mening, da de ofte kommer fra dødbolde som hjørnespark eller frispark. Fodskud sker derimod oftere i åbent spil og fra længere afstande. Derfor giver det god mening at bruge SHOTBODYPART som en forklarende variabel i en xG-model, da den fanger forskelle i både situation og afstand.",
+         "team_ranking" = "Holdets placering i ligaen kan virke som en oplagt indikator for deres offensive styrke – men vores data viser, at sammenhængen mellem rangering og antal skud ikke er særlig tydelig. Der er eksempler på både tophold og midterhold med mange afslutninger, ligesom flere lavere placerede hold har relativt få. Det tyder på, at ligaposition alene ikke forklarer, hvor ofte et hold afslutter.",
+         "player_rating" = "FIFA-ratingen viser, at de spillere som står bag afslutningerne generelt ligger på et overall-niveau omkring 67, med en potential-rating omkring 73. Det tyder på, at flere spillere i datagrundlaget vurderes at have mulighed for udvikling, men ikke nødvendigvis har nået et højt niveau endnu. Fordelingen er forholdsvis smal, og der ses ikke umiddelbart nogle tydelige mønstre i forhold til bestemte ratingintervaller. Det er dog vigtigt at huske, at denne variabel kun dækker spillere, der allerede har afsluttet – og dermed udelader alle spillere, der ikke har taget skud. Det gør det sværere at vurdere rating som en stærk skillelinje i forhold til afslutningsadfærd.",
+         "possession_events" = "Antallet af 'events' i possessionen før et skud svinger markant – nogle skud kommer efter lange, tålmodige opspil med over 40 handlinger, mens andre opstår efter bare 1–2 events. Det lave gennemsnit på 9,9 dækker derfor over stor variation. Det passer godt med, at nogle afslutninger opstår i strukturerede angreb, mens andre er resultatet af hurtige omstillinger eller tilfældige situationer. Alt i alt kan variablen eventuelt give et indblik i, hvor “kontrolleret” angrebet har været – og dermed i konteksten omkring skuddet.",
+         "possession_index" = "Possession index fortæller os, hvornår i kampen afslutningen sker – altså om det fx er kampens 3., 10. eller 40. possession. Det giver et billede af kampens rytme og hvor hurtigt chancer opstår. Her ser vi, at afslutninger oftest kommer tidligt i kampens forløb, med et gennemsnitligt index på 8,9 og en median på 7. Det tyder på, at de fleste skud sker i de første 10 possession-forløb i kampen, hvilket giver mening, da det ofte er i denne periode, at hold stadig presser på og forsøger at tage kontrol over kampen.
+Alt i alt en variabel, der hjælper os med at forstå den timing, som afslutninger indgår i – både i forhold til kampens udvikling og spillernes taktiske muligheder.",
+         "possession_duration" = "Størstedelen af afslutningerne sker efter korte possessions – faktisk falder næsten halvdelen i kategorien ‘Short’ (0–10 sek.). Det peger på, at mange skud opstår hurtigt, fx gennem højt pres, omstillinger eller spontane muligheder.
+
+Samtidig er det interessant, at der også forekommer skud efter meget lange possessions (45+ sek.), hvilket indikerer mere strukturerede og tålmodige angreb. Det afspejler to forskellige spilstile: hurtige, direkte angreb og kontrolleret opspil.
+
+Den gennemsnitlige varighed før en afslutning er cirka 17 sekunder, men fordelingen er tydeligt højreskæv. Det gør possession-varighed til en spændende kontekstuel variabel, som siger noget om tempo og opbygning bag chancen – men det er usikkert, hvor meget forklaringskraft den i sig selv har.",
          "Ukendt valg"
   )
 }
@@ -328,108 +386,115 @@ make_plot <- function(data, var, avg_on) {
            }
          },
          
-         # Overall
-         "overall" = {
+         "player_rating" = {
            if (avg_on) {
-             data %>%
+             data_long <- data %>%
                group_by(MATCH_WYID.x) %>%
-               summarise(mean_value = mean(overall, na.rm = TRUE)) %>%
-               ggplot(aes(x = mean_value)) +
-               geom_histogram(binwidth = 1, fill = "mediumseagreen", color = "white") +
-               geom_vline(aes(xintercept = mean(mean_value, na.rm = TRUE)), 
-                          color = "darkgreen", linetype = "dashed", linewidth = 1) +
-               labs(
-                 x = "Gns. FIFA-overall pr. kamp",
-                 y = "Antal kampe",
-                 title = "Gennemsnitlig FIFA-overall for skudspillere pr. kamp"
-               ) +
-               theme_minimal() +
-               theme(plot.title = element_text(hjust = 0.5, face = "bold"))
-             
+               summarise(mean_overall = mean(overall, na.rm = TRUE),
+                         mean_potential = mean(potential, na.rm = TRUE)) %>%
+               pivot_longer(cols = everything(), names_to = "type", values_to = "rating")
            } else {
-             ggplot(data, aes(x = overall)) +
-               geom_histogram(binwidth = 1, fill = "mediumseagreen", color = "white") +
-               geom_vline(aes(xintercept = mean(overall, na.rm = TRUE)), 
-                          color = "darkgreen", linetype = "dashed", linewidth = 1) +
-               labs(
-                 x = "FIFA-overall",
-                 y = "Antal skud",
-                 title = "Fordeling af FIFA-overall for skudspillere"
-               ) +
-               theme_minimal() +
-               theme(plot.title = element_text(hjust = 0.5, face = "bold"))
+             data_long <- data %>%
+               select(overall, potential) %>%
+               pivot_longer(cols = everything(), names_to = "type", values_to = "rating")
            }
+           
+           mean_overall <- mean(data$overall, na.rm = TRUE)
+           mean_potential <- mean(data$potential, na.rm = TRUE)
+           
+           ggplot(data_long, aes(x = rating, fill = type)) +
+             geom_histogram(position = "dodge", alpha = 0.8, binwidth = 5, color = "white") +
+             geom_vline(xintercept = mean_overall, color = "#0D1C8A", linewidth = 1, linetype = "dashed") +
+             geom_vline(xintercept = mean_potential, color = "#FDBA21", linewidth = 1, linetype = "dashed") +
+             annotate("text", x = mean_overall, y = Inf, label = paste0("Gns. overall: ", round(mean_overall, 1)),
+                      hjust = 1.1, vjust = 4, color = "#0D1C8A", fontface = "bold") +
+             annotate("text", x = mean_potential, y = Inf, label = paste0("Gns. potential: ", round(mean_potential, 1)),
+                      hjust = -0, vjust = 1.8, color = "#FDBA21", fontface = "bold") +
+             labs(
+               title = if (avg_on) {
+                 "Gns. spiller-rating pr. kamp"
+               } else {
+                 "Fordeling af skud baseret på spiller-rating"
+               },
+               subtitle = "Inkl. gennemsnitlig rating for Overall og Potential",
+               x = "FIFA-rating",
+               y = if (avg_on) "Gns. rating pr. kamp" else "Antal skud",
+               fill = "Ratingtype"
+             ) +
+             scale_fill_manual(values = c("overall" = "#0D1C8A", "potential" = "#FDBA21"),
+                               labels = c("Overall", "Potential")) +
+             theme_minimal() +
+             theme(plot.title = element_text(hjust = 0.5, face = "bold"))
          },
          
-         
-         # Potential
-         "potential" = {
-           if (avg_on) {
-             data %>%
-               group_by(MATCH_WYID.x) %>%
-               summarise(mean_value = mean(potential, na.rm = TRUE)) %>%
-               ggplot(aes(x = mean_value)) +
-               geom_histogram(binwidth = 1, fill = "goldenrod", color = "white") +
-               geom_vline(aes(xintercept = mean(mean_value, na.rm = TRUE)), 
-                          color = "darkorange", linetype = "dashed", linewidth = 1) +
-               labs(
-                 x = "Gns. FIFA-potential pr. kamp",
-                 y = "Antal kampe",
-                 title = "Gennemsnitlig FIFA-potential for skudspillere pr. kamp"
-               ) +
-               theme_minimal() +
-               theme(plot.title = element_text(hjust = 0.5, face = "bold"))
-             
-           } else {
-             ggplot(data, aes(x = potential)) +
-               geom_histogram(binwidth = 1, fill = "goldenrod", color = "white") +
-               geom_vline(aes(xintercept = mean(potential, na.rm = TRUE)), 
-                          color = "darkorange", linetype = "dashed", linewidth = 1) +
-               labs(
-                 x = "FIFA-potential",
-                 y = "Antal skud",
-                 title = "Fordeling af FIFA-potential for skudspillere"
-               ) +
-               theme_minimal() +
-               theme(plot.title = element_text(hjust = 0.5, face = "bold"))
-           }
-         },
          
          
          # Possession events
          "possession_events" = {
            if (avg_on) {
-             data %>%
+             mean_value <- allshotevents %>%
+               group_by(MATCH_WYID.x) %>%
+               summarise(mean_events = mean(POSSESSIONEVENTSNUMBER, na.rm = TRUE)) %>%
+               pull(mean_events) %>%
+               mean(na.rm = TRUE)
+             
+             allshotevents %>%
                group_by(MATCH_WYID.x) %>%
                summarise(mean_value = mean(POSSESSIONEVENTSNUMBER, na.rm = TRUE)) %>%
-               ggplot(aes(x = mean_value)) +
-               geom_histogram(binwidth = 1, fill = "mediumpurple", color = "white") +
-               geom_vline(aes(xintercept = mean(mean_value, na.rm = TRUE)), 
-                          color = "purple", linetype = "dashed", linewidth = 1) +
+               ggplot(aes(x = mean_value, fill = ..count..)) +
+               geom_histogram(binwidth = 1, color = "white", alpha = 0.9) +
+               scale_fill_gradient(low = "#0D1C8A", high = "#FDBA21") +
+               geom_vline(xintercept = mean_value, color = "#8E05C2", linetype = "dashed", linewidth = 1.2) +
+               annotate("text",
+                        x = mean_value + 1,
+                        y = Inf,
+                        label = paste0("Gns: ", round(mean_value, 1)),
+                        hjust = 0,
+                        vjust = 2,
+                        color = "#8E05C2",
+                        fontface = "bold") +
                labs(
-                 x = "Gns. antal hændelser pr. possession (pr. kamp)",
+                 x = "Gns. antal hændelser pr. kamp",
                  y = "Antal kampe",
                  title = "Hvor mange hændelser leder op til skud pr. kamp?"
                ) +
-               theme_minimal() +
+               theme_minimal(base_size = 13) +
+               theme(
+                 plot.title = element_text(hjust = 0.5, face = "bold"),
+                 legend.position = "none"
+               ) +
                theme(plot.title = element_text(hjust = 0.5, face = "bold"))
              
            } else {
-             ggplot(data, aes(x = POSSESSIONEVENTSNUMBER)) +
-               geom_histogram(binwidth = 1, fill = "mediumpurple", color = "white") +
-               geom_vline(aes(xintercept = mean(POSSESSIONEVENTSNUMBER, na.rm = TRUE)), 
-                          color = "purple", linetype = "dashed", linewidth = 1) +
+             mean_value <- mean(allshotevents$POSSESSIONEVENTSNUMBER, na.rm = TRUE)
+             
+             ggplot(allshotevents, aes(x = POSSESSIONEVENTSNUMBER, fill = ..count..)) +
+               geom_histogram(binwidth = 1, color = "white", alpha = 0.9) +
+               scale_fill_gradient(low = "#0D1C8A", high = "#FDBA21") +
+               geom_vline(xintercept = mean_value, color = "#8E05C2", linetype = "dashed", linewidth = 1.2) +
+               annotate("text",
+                        x = mean_value + 1,
+                        y = Inf,
+                        label = paste0("Gns: ", round(mean_value, 1)),
+                        hjust = 0,
+                        vjust = 2,
+                        color = "#8E05C2",
+                        fontface = "bold") +
                labs(
-                 x = "Antal hændelser i possession før skud",
+                 x = "Antal 'events' for holdet før skudet",
                  y = "Antal skud",
                  title = "Fordeling af possessionslængder før skud"
                ) +
-               theme_minimal() +
+               theme_minimal(base_size = 13) +
+               theme(
+                 plot.title = element_text(hjust = 0.5, face = "bold"),
+                 legend.position = "none"
+               ) +
                theme(plot.title = element_text(hjust = 0.5, face = "bold"))
            }
          },
          
-         
+
          # Possession index
          "possession_index" = {
            if (avg_on) {
@@ -437,9 +502,15 @@ make_plot <- function(data, var, avg_on) {
                group_by(MATCH_WYID.x) %>%
                summarise(mean_index = mean(POSSESSIONEVENTINDEX, na.rm = TRUE)) %>%
                ggplot(aes(x = mean_index)) +
-               geom_histogram(binwidth = 5, fill = "#00b4d8", color = "white") +
-               geom_vline(aes(xintercept = mean(mean_index, na.rm = TRUE)), 
-                          color = "#0077b6", linetype = "dashed", linewidth = 1) +
+               geom_histogram(aes(fill = ..x..), binwidth = 5, color = "white") +
+               scale_fill_gradient(low = "#0D1C8A", high = "#FDBA21", guide = "none") +
+               geom_vline(aes(xintercept = mean(mean_index, na.rm = TRUE)),
+                          color = "gray27", linetype = "dashed", linewidth = 1.2) +
+               annotate("text", x = mean(data$POSSESSIONEVENTINDEX, na.rm = TRUE),
+                        y = Inf,
+                        label = paste0("Gns. index: ", round(mean(data$POSSESSIONEVENTINDEX, na.rm = TRUE), 1)),
+                        vjust = 2, hjust = -0.1,
+                        fontface = "bold", color = "gray27", size = 3.5) +
                labs(
                  x = "Gns. possession-index pr. kamp",
                  y = "Antal kampe",
@@ -450,9 +521,15 @@ make_plot <- function(data, var, avg_on) {
              
            } else {
              ggplot(data, aes(x = POSSESSIONEVENTINDEX)) +
-               geom_histogram(binwidth = 5, fill = "#00b4d8", color = "white") +
-               geom_vline(aes(xintercept = mean(POSSESSIONEVENTINDEX, na.rm = TRUE)), 
-                          color = "#0077b6", linetype = "dashed", linewidth = 1) +
+               geom_histogram(aes(fill = ..x..), binwidth = 5, color = "white") +
+               scale_fill_gradient(low = "#0D1C8A", high = "#FDBA21", guide = "none") +
+               geom_vline(aes(xintercept = mean(POSSESSIONEVENTINDEX, na.rm = TRUE)),
+                          color = "gray27", linetype = "dashed", linewidth = 1.2) +
+               annotate("text", x = mean(data$POSSESSIONEVENTINDEX, na.rm = TRUE),
+                        y = Inf,
+                        label = paste0("Gns. index: ", round(mean(data$POSSESSIONEVENTINDEX, na.rm = TRUE), 1)),
+                        vjust = 2, hjust = -0.1,
+                        fontface = "bold", color = "gray27", size = 3.5) +
                labs(
                  x = "Possession index i kampen",
                  y = "Antal skud",
@@ -464,38 +541,51 @@ make_plot <- function(data, var, avg_on) {
          },
          
          
+         
          # Possession duration
          "possession_duration" = {
            if (avg_on) {
-             data %>%
+             duration_data <- data %>%
                group_by(MATCH_WYID.x) %>%
-               summarise(mean_dur = mean(POSSESSIONDURATION, na.rm = TRUE)) %>%
-               ggplot(aes(x = mean_dur)) +
-               geom_histogram(binwidth = 2, fill = "#f9844a", color = "white") +
-               geom_vline(aes(xintercept = mean(mean_dur, na.rm = TRUE)), 
-                          color = "#d00000", linetype = "dashed", linewidth = 1) +
+               summarise(mean_duration = mean(POSSESSIONDURATION, na.rm = TRUE), .groups = "drop")
+             
+             avg_dur <- mean(duration_data$mean_duration, na.rm = TRUE)
+             
+             ggplot(duration_data, aes(x = mean_duration)) +
+               geom_histogram(aes(fill = ..count..), binwidth = 2, color = "white", alpha = 0.9) +
+               geom_vline(xintercept = avg_dur, linetype = "dashed", color = "#FDBA21", linewidth = 1.2) +
+               annotate("text", x = avg_dur, y = Inf, label = paste0("Gns.: ", round(avg_dur, 1)), 
+                        vjust = 2, hjust = -0.1, color = "#FDBA21", fontface = "bold") +
+               scale_fill_gradient(low = "#0D1C8A", high = "#FDBA21", guide = "none") +
                labs(
-                 x = "Gns. varighed af possession (sekunder)",
-                 y = "Antal kampe",
-                 title = "Hvor længe varer en possession før skud (gennemsnit pr. kamp)?"
+                 title = "Fordeling af gennemsnitlig possession-varighed pr. kamp",
+                 x = "Gns. varighed (sekunder)",
+                 y = "Antal kampe"
                ) +
                theme_minimal() +
-               theme(plot.title = element_text(hjust = 0.5, face = "bold"))
+               theme(plot.title = element_text(face = "bold", hjust = 0.5))
              
            } else {
+             avg_dur <- mean(data$POSSESSIONDURATION, na.rm = TRUE)
+             
              ggplot(data, aes(x = POSSESSIONDURATION)) +
-               geom_histogram(binwidth = 2, fill = "#f9844a", color = "white") +
-               geom_vline(aes(xintercept = mean(POSSESSIONDURATION, na.rm = TRUE)), 
-                          color = "#d00000", linetype = "dashed", linewidth = 1) +
+               geom_histogram(aes(fill = ..count..), binwidth = 2, color = "white", alpha = 0.9) +
+               geom_vline(xintercept = avg_dur, linetype = "dashed", color = "#FDBA21", linewidth = 1.2) +
+               annotate("text", x = avg_dur, y = Inf, label = paste0("Gns.: ", round(avg_dur, 1)), 
+                        vjust = 2, hjust = -0.1, color = "#FDBA21", fontface = "bold") +
+               scale_fill_gradient(low = "#0D1C8A", high = "#FDBA21", guide = "none") +
                labs(
-                 x = "Varighed af possession før skud (sekunder)",
-                 y = "Antal skud",
-                 title = "Fordeling af possessionsvarighed før skud"
+                 title = "Fordeling af possession-varighed for afslutninger",
+                 x = "Varighed (sekunder)",
+                 y = "Antal skud"
                ) +
                theme_minimal() +
-               theme(plot.title = element_text(hjust = 0.5, face = "bold"))
+               theme(plot.title = element_text(face = "bold", hjust = 0.5))
            }
-         }
+         },
+         
+         
+         
   )
 }
 
@@ -644,6 +734,101 @@ server <- function(input, output, session) {
       )
   })
   
+  output$team_ranking_summary_ui <- renderUI({
+    df <- allshotevents %>%
+      group_by(TEAMNAME.x, MATCH_WYID.x, IMAGEDATAURL) %>%
+      summarise(shots = n(), .groups = "drop") %>%
+      group_by(TEAMNAME.x, IMAGEDATAURL) %>%
+      summarise(
+        antal_kampe = n(),
+        gennemsnit_skud = mean(shots),
+        sd_skud = sd(shots),
+        .groups = "drop"
+      ) %>%
+      arrange(desc(gennemsnit_skud))
+    
+    # lav HTML-rækker med logo
+    html_rows <- apply(df, 1, function(row) {
+      sprintf(
+        '<tr>
+        <td><img src="%s" height="30px" style="margin-right:10px;"> %s</td>
+        <td>%.0f</td>
+        <td>%.2f</td>
+        <td>%.2f</td>
+      </tr>',
+        row["IMAGEDATAURL"],
+        row["TEAMNAME.x"],
+        as.numeric(row["antal_kampe"]),
+        as.numeric(row["gennemsnit_skud"]),
+        as.numeric(row["sd_skud"])
+      )
+    })
+    
+    # wrap i en HTML-tabel
+    HTML(sprintf('
+    <table style="width:100%%; font-size:14px;">
+      <thead>
+        <tr>
+          <th>Hold</th>
+          <th>Antal kampe</th>
+          <th>Gns. skud</th>
+          <th>Std. afvigelse</th>
+        </tr>
+      </thead>
+      <tbody>
+        %s
+      </tbody>
+    </table>', paste(html_rows, collapse = "")
+    ))
+  })
+  
+  output$rating_table <- renderTable({
+    allshotevents %>%
+      pivot_longer(cols = c(overall, potential), names_to = "Ratingtype", values_to = "rating") %>%
+      group_by(Ratingtype) %>%
+      summarise(
+        `Gns. rating` = round(mean(rating, na.rm = TRUE), 1),
+        `Standardafvigelse` = round(sd(rating, na.rm = TRUE), 1),
+        `Antal skud` = n()
+      )
+  })
+  
+  output$possession_events_table <- renderTable({
+    allshotevents %>%
+      summarise(
+        Antal_skud = n(),
+        Gns_varighed = round(mean(POSSESSIONEVENTSNUMBER, na.rm = TRUE), 2),
+        SD_varighed = round(sd(POSSESSIONEVENTSNUMBER, na.rm = TRUE), 2),
+        Min = min(POSSESSIONEVENTSNUMBER, na.rm = TRUE),
+        Max = max(POSSESSIONEVENTSNUMBER, na.rm = TRUE)
+      )
+  })
+  
+  output$possession_index_table <- renderTable({
+    data <- if (input$split) train_data else allshotevents
+    
+    data %>%
+      summarise(
+        "Gennemsnit" = round(mean(POSSESSIONEVENTINDEX, na.rm = TRUE), 1),
+        "Median" = round(median(POSSESSIONEVENTINDEX, na.rm = TRUE), 1),
+        "Standardafvigelse" = round(sd(POSSESSIONEVENTINDEX, na.rm = TRUE), 1)
+      )
+  })
+  
+  output$duration_summary <- renderTable({
+    allshotevents %>%
+      mutate(duration_bin = cut(POSSESSIONDURATION,
+                                breaks = c(0, 10, 20, 45, Inf),
+                                labels = c("Short (0-10s)", "Medium (10-20s)", "Long (20-45s)", "Very long (45s+)"),
+                                right = FALSE)) %>%
+      group_by(duration_bin) %>%
+      summarise(
+        `Antal skud` = n(),
+        `Gns. varighed` = round(mean(POSSESSIONDURATION, na.rm = TRUE), 1),
+        `SD` = round(sd(POSSESSIONDURATION, na.rm = TRUE), 1),
+        .groups = "drop"
+      )
+  })
   
 
 }
