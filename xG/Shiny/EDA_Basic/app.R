@@ -40,8 +40,7 @@ ui <- dashboardPage(
     sidebarMenu(
       id = "plot_choice",
       menuItem("📘 Introduktion", tabName = "intro", icon = icon("info-circle")),
-      menuItem("Skudposition (punktplot)", tabName = "location_points", icon = icon("crosshairs")),
-      menuItem("Skudposition (heatmap)", tabName = "location_heatmap", icon = icon("fire")),
+      menuItem("Skudposition", tabName = "location_points", icon = icon("crosshairs")),
       menuItem("Skudvinkel", tabName = "shot_angle", icon = icon("angle-right")),
       menuItem("Afstand til mål", tabName = "shot_distance", icon = icon("ruler-horizontal")),
       menuItem("Kropsdel", tabName = "body_part", icon = icon("running")),
@@ -69,8 +68,23 @@ ui <- dashboardPage(
                 tags$li("Tjek 'Vis opdelt på træning/test' for at sammenligne splits."),
                 tags$li("Hver variabel vises som et plot og med en tilhørende konklusion.")
               ),
+              br(),
+              h3("Hvad viser de forskellige variabler?"),
+              tags$ul(
+                tags$li(strong("Skudposition:"), " Hvor på banen afslutningerne bliver taget fra."),
+                tags$li(strong("Skudvinkel:"), " I hvilken vinkel spilleren skyder mod målet."),
+                tags$li(strong("Afstand til mål:"), " Hvor langt der er fra spilleren til målet ved afslutning."),
+                tags$li(strong("Kropsdel:"), " Hvilken kropsdel spilleren bruger til at afslutte."),
+                tags$li(strong("Team Ranking:"), " Holdenes placering i ligaen."),
+                tags$li(strong("Spiller-rating:"), " Den individuelle spiller-rating fra FIFA-data."),
+                tags$li(strong("Antal events i possession:"), " Hvor mange aktioner der er i et angreb før afslutning."),
+                tags$li(strong("Index for possession:"), " Hvornår i kampen possessionen (angrebet) finder sted."),
+                tags$li(strong("Varighed af possession:"), " Hvor mange sekunder possessionen varer før afslutning.")
+              ),
+              br(),
               p("God fornøjelse!")
-      ),
+      )
+      ,
       
       # Din eksisterende visualisering
       tabItem(tabName = "location_points",
@@ -79,6 +93,13 @@ ui <- dashboardPage(
                     uiOutput("plots_ui")),
                 box(title = "Konklusion", width = 4, solidHeader = TRUE, status = "info",
                     textOutput("conclusion_text"))
+              ),
+              fluidRow(
+                conditionalPanel(
+                  condition = "input.plot_choice == 'location_points'",
+                  box(title = "Oversigt over skud fordelt på baneområder", width = 12, solidHeader = TRUE, status = "warning",
+                      tableOutput("position_area_table"))
+                )
               ),
               fluidRow(
                 conditionalPanel(
@@ -167,8 +188,7 @@ ui <- dashboardPage(
 # -- Konklusionstekster -------------------------------------------
 get_conclusion <- function(var) {
   switch(var,
-         "location_points" = "Konklusion: xxxx",
-         "location_heatmap" = "Konklusion: xxxx",
+         "location_points" = "Afslutninger i Superligaen bliver oftest taget uden for feltet. Hele 67 % af alle skud stammer fra områder uden for det store felt, mens 29 % sker inde i selve feltet, og kun 4 % tages fra det lille målfelt. Det viser, at mange hold enten vælger – eller bliver tvunget til – at afslutte fra distancen, frem for at spille sig helt tæt på mål. Fordelingen peger på en generel tendens i spillet, hvor afslutninger ofte kommer fra positioner, hvor sandsynligheden for scoring er lavere.",
          "shot_angle" = "Vinklen på skuddet er helt afgørende for, hvor farlig en afslutning er. Jo større vinkel spilleren har mod målet, jo lettere er det at placere bolden udenom målmanden. Gennemsnittet ligger omkring 34 grader, men med stor variation – hvilket passer godt med, at spillere skyder fra både åbne og meget skæve vinkler. De skarpeste vinkler opstår typisk ude ved siden af feltet, mens de åbne vinkler ofte ses tættere på mål og midt i feltet. Det underbygger, at skudvinkel er en vigtig variabel i en xG-model, da den siger noget om, hvor 'åben' chancen reelt er.",
          "shot_distance" = "Afstanden til målet er en af de mest oplagte og centrale forklarende variable, når man forsøger at beskrive kvaliteten af en afslutning. Vores data viser, at den gennemsnitlige afslutning bliver taget fra omkring 19 meter, men med stor variation – nogle afslutninger sker helt tæt under mål, mens andre bliver fyret af op mod 60 meter ude fra banen.
 
@@ -198,13 +218,28 @@ make_plot <- function(data, var, avg_on) {
          "location_points" = {
            ggplot(data, aes(x = LOCATIONX, y = LOCATIONY)) +
              annotate_pitch(dimensions = pitch_wyscout, colour = "grey80", fill = "white") +
-             geom_bin2d(binwidth = c(1, 1), alpha = 0.6, color = "black") +
+             stat_density_2d(
+               aes(fill = after_stat(density)),
+               geom = "raster",
+               contour = FALSE,
+               alpha = 0.6,
+               adjust = 0.8
+             ) +
+             scale_fill_viridis_c(option = "C") +
              theme_pitch() +
-             coord_flip(xlim = c(50, 100), ylim = c(0, 100)) +
-             labs(title = "Der er den højeste koncentration af mål for skud i målfeltet") +
-             theme(plot.title = element_text(hjust = 0.5, face = "bold"))
-           
-         },
+             labs(
+               title = "Hvor på banen bliver der afsluttet fra?",
+               subtitle = "Mørkere farver = højere koncentration af skud",
+               fill = NULL
+             ) +
+             theme(
+               plot.title = element_text(hjust = 0.5, face = "bold"),
+               plot.subtitle = element_text(hjust = 0.5),
+               legend.position = "right"
+             )
+         }
+         ,
+         
          
          # Heatmap
          "location_heatmap" = {
@@ -611,6 +646,7 @@ server <- function(input, output, session) {
     }
   })
   
+
   output$plot_combined <- renderPlot({
     make_plot(allshotevents, input$plot_choice, input$avg_per_game)
   })
@@ -622,6 +658,24 @@ server <- function(input, output, session) {
   output$plot_test <- renderPlot({
     make_plot(test_data, input$plot_choice, input$avg_per_game) + ggtitle("Testdata")
   })
+  
+  output$position_area_table <- renderTable({
+    allshotevents %>%
+      mutate(
+        område = case_when(
+          LOCATIONX > 94 & LOCATIONY >= 44.5 & LOCATIONY <= 55.5 ~ "Målfelt",
+          LOCATIONX > 88 & LOCATIONY >= 35 & LOCATIONY <= 65 ~ "Store felt",
+          TRUE ~ "Uden for feltet"
+        )
+      ) %>%
+      count(område, name = "Antal skud") %>%
+      mutate(
+        `Andel (%)` = round(100 * `Antal skud` / sum(`Antal skud`), 1)
+      ) %>%
+      arrange(factor(område, levels = c("Målfelt", "Store felt", "Uden for feltet")))
+  })
+  
+
   
   # distance lines
   output$distance_lines_plot <- renderPlot({
