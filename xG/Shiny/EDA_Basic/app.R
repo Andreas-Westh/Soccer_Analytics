@@ -663,8 +663,8 @@ server <- function(input, output, session) {
     allshotevents %>%
       mutate(
         område = case_when(
-          LOCATIONX > 94 & LOCATIONY >= 44.5 & LOCATIONY <= 55.5 ~ "Målfelt",
-          LOCATIONX > 88 & LOCATIONY >= 35 & LOCATIONY <= 65 ~ "Store felt",
+          LOCATIONX > 94 & LOCATIONY >= 37 & LOCATIONY <= 63 ~ "Målfelt",
+          LOCATIONX > 84 & LOCATIONY >= 19 & LOCATIONY <= 81 ~ "Store felt",
           TRUE ~ "Uden for feltet"
         )
       ) %>%
