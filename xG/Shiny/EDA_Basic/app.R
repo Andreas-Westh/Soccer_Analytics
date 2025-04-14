@@ -8,6 +8,9 @@ library(tidyverse)
 library(ggimage)
 
 
+allshotevents <- readRDS("allshotevents_Shiny_EDA_1.rds")
+train_data <- readRDS("train_data.rds")
+test_data <- readRDS("test_data.rds")
 
 
 # -- Farver til body_parts -----------------------------------------------------------
@@ -75,9 +78,9 @@ ui <- dashboardPage(
                 tags$li(strong("Skudvinkel:"), " I hvilken vinkel spilleren skyder mod målet."),
                 tags$li(strong("Afstand til mål:"), " Hvor langt der er fra spilleren til målet ved afslutning."),
                 tags$li(strong("Kropsdel:"), " Hvilken kropsdel spilleren bruger til at afslutte."),
-                tags$li(strong("Team Ranking:"), " Holdenes placering i ligaen."),
+                tags$li(strong("Team Ranking:"), " Holdenes placering i ligaen sidste sæson."),
                 tags$li(strong("Spiller-rating:"), " Den individuelle spiller-rating fra FIFA-data."),
-                tags$li(strong("Antal events i possession:"), " Hvor mange aktioner der er i et angreb før afslutning."),
+                tags$li(strong("Antal events i possession:"), " Hvor mange 'aktioner'events' der er i et angreb før afslutning."),
                 tags$li(strong("Index for possession:"), " Hvornår i kampen possessionen (angrebet) finder sted."),
                 tags$li(strong("Varighed af possession:"), " Hvor mange sekunder possessionen varer før afslutning.")
               ),
@@ -627,9 +630,6 @@ make_plot <- function(data, var, avg_on) {
 
 # -- Server -------------------------------------------------------
 server <- function(input, output, session) {
-  allshotevents <- readRDS("allshotevents_Shiny_EDA_1.rds")
-  train_data <- readRDS("train_data.rds")
-  test_data <- readRDS("test_data.rds")
   
   observe({
     updateTabItems(session, "plot_choice", selected = "intro")
