@@ -55,6 +55,10 @@ ui <- dashboardPage(
       br(),
       checkboxInput("split", "Vis opdelt på træning/test", value = FALSE),
       checkboxInput("avg_per_game", "Vis gennemsnit pr. kamp", value = FALSE)
+    ),
+    div(
+      style = "background-color: rgba(200,200,200,0.4); padding: 10px; border-radius: 10px; margin: 10px; font-size: 13px;",
+      "OBS: Hvis sider/variabler ikke vises korrekt, så klik på 'Skudposition' og derefter tilbage til den givende variabel."
     )
   ),
   dashboardBody(
