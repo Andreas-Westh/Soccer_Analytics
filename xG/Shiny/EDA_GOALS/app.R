@@ -41,7 +41,7 @@ ui <- dashboardPage(
     ),
     div(
       style = "background-color: rgba(200,200,200,0.4); padding: 10px; border-radius: 10px; margin: 10px; font-size: 13px;",
-      "OBS: Hvis sider ikke vises korrekt, så klik på 'Skudposition' for at genindlæse visningen."
+      "OBS: Hvis sider/variabler ikke vises korrekt, så klik på 'Skudposition' og derefter tilbage til den givende variabel."
     )
   ),
  
