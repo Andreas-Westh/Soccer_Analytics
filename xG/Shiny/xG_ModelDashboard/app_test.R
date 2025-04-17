@@ -15,6 +15,11 @@ allshotevents <- readRDS("allshotevents.rds")
 test_data <- readRDS("test_data.rds")
 test_data_yn <- readRDS("test_data_yn.rds")
 
+xgb_model <- readRDS("xgb_model_backup1.rds")
+rf_model  <- readRDS("rf_model_final.rds")
+tree_model <- readRDS("simple_tree.rds")
+glm_model <- readRDS("glm_train.rds")
+
 xgb_pred <- readRDS("xgb_pred.rds")
 rf_test <- readRDS("rf_test.rds")
 tree_probs <- readRDS("tree_probs.rds")
@@ -120,12 +125,53 @@ ui <- dashboardPage(
               p("Denne app præsenterer resultaterne fra vores xG-model baseret på XGBoost, evalueret mod WyScout og andre modeller (Random Forest, Decision Tree, GLM) for Superligaen 2023/24. XGBoost opnår en højere AUC end WyScout, hvilket indikerer bedre evne til at skelne mellem mål og ikke-mål. Visualiseringerne viser xG-fordelinger, modelpræstation og holdspecifikke analyser."),
               p("Brug menuen til at udforske:"),
               tags$ul(
-                tags$li(tags$b("xG Fordeling"), ": Sammenlign xG-fordelinger på banen for XGBoost og WyScout.", style = "color: #D95F02;"),
-                tags$li(tags$b("Model Performance"), ": Se ROC-kurver og AUC for alle modeller.", style = "color: #7570B3;"),
-                tags$li(tags$b("Kamp Analyse"), ": Dyk ned i xG for specifikke kampe.", style = "color: #66A61E;"),
-                tags$li(tags$b("Hold Analyse"), ": Se holdpræstation over hele sæsonen.", style = "color: #66A61E;")
+                tags$li(
+                  tags$b("📘 xG Fordeling"), ": Sammenlign skudpositioner og xG-værdier på banen for ", 
+                  tags$span(style = "color: #D95F02;", "XGBoost"), " og ", 
+                  tags$span(style = "color: #66A61E;", "WyScout"), 
+                  ". Giver overblik over modellets vurdering af farlige positioner."
+                ),
+                tags$li(
+                  tags$b("📊 Model Performance"), ": Evaluer og sammenlign ", 
+                  tags$span(style = "color: #D95F02;", "XGBoost"), ", ",
+                  tags$span(style = "color: #7570B3;", "Random Forest"), ", ",
+                  tags$span(style = "color: #E7298A;", "Decision Tree"), ", ",
+                  tags$span(style = "color: #1B9E77;", "GLM"), " og ", 
+                  tags$span(style = "color: #66A61E;", "WyScout"), 
+                  " med AUC, Gini, confusion matrix og feature importance."
+                ),
+                tags$li(
+                  tags$b("🎯 Kamp Analyse"), ": Dyk ned i enkelte kampe for et hold og se alle skud samt model-vurderet xG for både ",
+                  tags$span(style = "color: blue;", "valgt hold"), " og ",
+                  tags$span(style = "color: red;", "modstanderen"),
+                  "."
+                ),
+                tags$li(
+                  tags$b("🛡️ Hold Analyse"), ": Se samlet xG, mål og over-/underpræstation pr. hold for hele sæsonen ",
+                  "baseret på ", tags$span(style = "color: #D95F02;", "XGBoost-modellen"), "."
+                )
+              ),
+              box(
+                title = "📋 Resumé af vores resultater",
+                status = "primary",
+                solidHeader = TRUE,
+                width = 12,
+                HTML("
+  <p>I vores arbejde med Expected Goals har vi udviklet en klassifikationsmodel, der estimerer sandsynligheden for, at et skud bliver til mål – den såkaldte <i>xG-værdi</i>.</p>
+
+  <p>Vi tog udgangspunkt i 4181 afslutninger fra Superligaen 2023/2024 og lavede et stratificeret split i trænings- og testdata for at sikre en ens fordeling af mål og ikke-mål, da kun 11,6 % af skuddene resulterede i mål.</p>
+
+  <p>Som forklarende variable endte vi med kun at anvende tre: <b>afstand</b>, <b>vinkel</b> og <b>kropsdel</b>. Afstand og vinkel er beregnet ud fra afslutningskoordinaterne. En analyse af dataene viste tydelige mønstre: mål bliver i gennemsnit scoret tættere på og fra mere åbne vinkler end ikke-mål.</p>
+
+  <p>Vi afprøvede fire modeller: <b>GLM, Decision Tree, Random Forest og XGBoost</b>. Modellerne blev evalueret på baggrund af AUC. Vores XGBoost-model opnåede den bedste performance med en AUC på <b>0.7774</b>, efterfulgt af WyScout med <b>0.7769</b>.</p>
+
+  <p>Det antyder, at en relativt simpel model med få, men relevante variable og grundig databehandling <b>kan nærme sig</b> niveauet for en professionel benchmarkmodel – <i>i hvert fald når både trænings- og testdata stammer fra samme sæson og liga</i>.</p>
+")
+                
               )
-      ),
+              
+              
+              ),
       # xG Fordeling
       tabItem(tabName = "xg_overview",
               fluidRow(
@@ -157,13 +203,18 @@ ui <- dashboardPage(
                     plotOutput("roc_plot", height = "500px"))
               ),
               fluidRow(
-                box(title = "AUC Sammenligning", width = 12, status = "info", solidHeader = TRUE,
+                box(title = "Sammenligning af modellerne", width = 12, status = "info", solidHeader = TRUE,
                     DTOutput("auc_table"))
               ),
               fluidRow(
                 box(title = "Confusion Matrix (Threshold = 0.35)", width = 12, status = "info", solidHeader = TRUE,
                     verbatimTextOutput("confusion_matrix_table"))
+              ),
+              fluidRow(
+                box(title = "Feature Importance", width = 12, status = "primary", solidHeader = TRUE,
+                    plotOutput("var_imp_plot", height = "600px"))
               )
+              
       ),
       # Kamp Analyse
       tabItem(tabName = "match_analysis",
@@ -377,13 +428,19 @@ server <- function(input, output, session) {
     datatable(
       roc_data_all %>%
         group_by(Model) %>%
-        summarise(AUC = round(unique(AUC), 4), .groups = "drop") %>%
+        summarise(
+          AUC = round(unique(AUC), 4),
+          Gini = round((2 * unique(AUC)) - 1, 4),
+          .groups = "drop"
+        ) %>%
         arrange(desc(AUC)),
       options = list(pageLength = 5, searching = FALSE, lengthChange = FALSE),
       rownames = FALSE
     ) %>%
-      formatStyle("AUC", backgroundColor = styleInterval(c(0.8, 0.85), c("#FFE6E6", "#FFF0E6", "#E6FFE6")))
+      formatStyle("AUC", backgroundColor = styleInterval(c(0.7, 0.77), c("#FFE6E6", "#FFF0E6", "#E6FFE6"))) %>%
+      formatStyle("Gini", backgroundColor = styleInterval(c(0.5, 0.554), c("#FFE6E6", "#FFF0E6", "#E6FFE6")))
   })
+  
   
   output$confusion_matrix_table <- renderPrint({
     # Tjek inputdata før beregning
@@ -512,27 +569,45 @@ server <- function(input, output, session) {
     }
   })
   
-  # Kamp Analyse: Hold- og kampvælger
-  output$match_selector <- renderUI({
-    req(input$match_selected_team)
-    message("Valgt hold (Kamp Analyse): ", input$match_selected_team)
-    matches <- allshotevents %>%
-      filter(TEAMNAME.x == input$match_selected_team) %>%
-      distinct(MATCH_WYID.x, MATCH_LABEL) %>%
-      filter(!is.na(MATCH_LABEL)) %>%
-      arrange(MATCH_WYID.x)
+  output$var_imp_plot <- renderPlot({
+    selected <- input$selected_models
+    models <- list(
+      "XGBoost" = xgb_model,
+      "Random Forest" = rf_model,
+      "Decision Tree" = tree_model,
+      "GLM" = glm_model
+    )
     
-    message("Antal kampe for ", input$match_selected_team, ": ", nrow(matches))
+    var_imp_data <- lapply(selected, function(model_name) {
+      if (model_name %in% names(models)) {
+        imp <- caret::varImp(models[[model_name]])$importance
+        imp$Feature <- rownames(imp)
+        imp$Model <- model_name
+        imp
+      }
+    })
     
-    if (nrow(matches) == 0) {
-      return(selectInput("match_selected_match", "Vælg kamp:", choices = c("Ingen kampe tilgængelige" = "")))
-    }
+    var_imp_df <- bind_rows(var_imp_data)
     
-    match_choices <- setNames(matches$MATCH_WYID.x, matches$MATCH_LABEL)
-    match_choices <- as.list(c("Alle kampe" = "Alle kampe", match_choices))
+    # Gør det til faktor og bevar rækkefølge
+    var_imp_df$Feature <- factor(var_imp_df$Feature, levels = rev(unique(var_imp_df$Feature)))
     
-    selectInput("match_selected_match", "Vælg kamp:", choices = match_choices)
+    ggplot(var_imp_df, aes(x = Feature, y = Overall, fill = Model)) +
+      geom_col(position = position_dodge(width = 0.8), width = 0.7) +
+      coord_flip() +
+      labs(
+        title = "Feature Importance (sammenlignet på tværs af modeller)",
+        x = "Feature",
+        y = "Vigtighed"
+      ) +
+      theme_minimal(base_size = 14) +
+      theme(
+        plot.title = element_text(face = "bold", hjust = 0.5),
+        axis.text.y = element_text(size = 12),
+        legend.position = "bottom"
+      )
   })
+  
   
   get_filtered_match_data <- reactive({
     message("Kører get_filtered_match_data...")
