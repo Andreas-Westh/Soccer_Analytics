@@ -8,6 +8,7 @@ library(ggsoccer)
 library(plotly)
 library(DT)
 library(ggtext)
+library(caret)
 
 # -- Indlæs data og modeller --
 allshotevents <- readRDS("allshotevents.rds")
@@ -86,7 +87,8 @@ ui <- dashboardPage(
       menuItem("📘 Introduktion", tabName = "intro", icon = icon("info-circle")),
       menuItem("xG Fordeling", tabName = "xg_overview", icon = icon("bullseye")),
       menuItem("Model Performance", tabName = "performance", icon = icon("chart-line")),
-      menuItem("Hold Analyse", tabName = "xg_team_view", icon = icon("shield-alt"))
+      menuItem("Kamp Analyse", tabName = "match_analysis", icon = icon("futbol")),
+      menuItem("Hold Analyse", tabName = "team_analysis", icon = icon("shield-alt"))
     )
   ),
   dashboardBody(
@@ -97,6 +99,7 @@ ui <- dashboardPage(
         .box.box-warning { border-top-color: #7570B3; }
         .skin-blue .main-header .logo { background-color: #D95F02; }
         .skin-blue .main-header .navbar { background-color: #D95F02; }
+        .logo-img { width: 20px; height: 20px; vertical-align: middle; margin-right: 5px; }
       "))
     ),
     tabItems(
@@ -119,7 +122,8 @@ ui <- dashboardPage(
               tags$ul(
                 tags$li(tags$b("xG Fordeling"), ": Sammenlign xG-fordelinger på banen for XGBoost og WyScout.", style = "color: #D95F02;"),
                 tags$li(tags$b("Model Performance"), ": Se ROC-kurver og AUC for alle modeller.", style = "color: #7570B3;"),
-                tags$li(tags$b("Hold Analyse"), ": Dyk ned i xG for specifikke hold og kampe.", style = "color: #66A61E;")
+                tags$li(tags$b("Kamp Analyse"), ": Dyk ned i xG for specifikke kampe.", style = "color: #66A61E;"),
+                tags$li(tags$b("Hold Analyse"), ": Se holdpræstation over hele sæsonen.", style = "color: #66A61E;")
               )
       ),
       # xG Fordeling
@@ -155,27 +159,37 @@ ui <- dashboardPage(
               fluidRow(
                 box(title = "AUC Sammenligning", width = 12, status = "info", solidHeader = TRUE,
                     DTOutput("auc_table"))
+              ),
+              fluidRow(
+                box(title = "Confusion Matrix (Threshold = 0.35)", width = 12, status = "info", solidHeader = TRUE,
+                    verbatimTextOutput("confusion_matrix_table"))
+              )
+      ),
+      # Kamp Analyse
+      tabItem(tabName = "match_analysis",
+              fluidRow(
+                box(title = "Valg af hold og kamp", width = 3, status = "primary", solidHeader = TRUE,
+                    selectInput("match_selected_team", "Vælg hold:", choices = sort(unique(allshotevents$TEAMNAME.x))),
+                    uiOutput("match_selector"),
+                    checkboxGroupInput("match_model_choice", "Vælg model:", choices = c("XGBoost"), selected = "XGBoost")
+                ),
+                box(title = "Skudpositioner", width = 9, status = "info", solidHeader = TRUE,
+                    plotlyOutput("match_xg_plot", height = "600px"))
+              ),
+              fluidRow(
+                box(title = "Kampoversigt", width = 12, status = "warning", solidHeader = TRUE,
+                    DTOutput("match_summary_table"))
               )
       ),
       # Hold Analyse
-      tabItem(tabName = "xg_team_view",
+      tabItem(tabName = "team_analysis",
               fluidRow(
-                box(title = "Valg af hold og kamp", width = 3, status = "primary", solidHeader = TRUE,
-                    selectInput("selected_team", "Vælg hold:", choices = sort(unique(allshotevents$TEAMNAME.x))),
-                    uiOutput("match_selector"),
-                    checkboxGroupInput("model_choice", "Vælg model:", choices = c("XGBoost", "WyScout"), selected = c("XGBoost"))
+                box(title = "Valg af hold", width = 3, status = "primary", solidHeader = TRUE,
+                    checkboxGroupInput("team_selected_teams", "Vælg hold:",
+                                       choices = sort(unique(allshotevents$TEAMNAME.x)),
+                                       selected = sort(unique(allshotevents$TEAMNAME.x)))
                 ),
-                box(title = "Skudpositioner", width = 9, status = "info", solidHeader = TRUE,
-                    plotlyOutput("team_xg_plot", height = "600px"))
-              ),
-              fluidRow(
-                box(title = "Statistisk Oversigt", width = 6, status = "warning", solidHeader = TRUE,
-                    tableOutput("xg_summary_table_team")),
-                box(title = "Gennemsnitlig xG pr. Zone", width = 6, status = "warning", solidHeader = TRUE,
-                    tableOutput("xg_zone_table_team"))
-              ),
-              fluidRow(
-                box(title = "Holdoversigt", width = 12, status = "warning", solidHeader = TRUE,
+                box(title = "Holdpræstation over Sæsonen", width = 9, status = "warning", solidHeader = TRUE,
                     DTOutput("team_summary_table"))
               )
       )
@@ -303,17 +317,12 @@ server <- function(input, output, session) {
       )
   }, digits = 3)
   
-  # Tabel: Gennemsnitlig xG pr. zone med standardafvigelse
   output$xg_zone_table <- renderTable({
-    # Definér zoner baseret på opdaterede koordinater fra Wyscout-dokumentationen
     df_zones <- allshotevents %>%
       mutate(
         Zone = case_when(
-          # Målområdet (det lille felt tæt på målet)
           LOCATIONX >= 94 & LOCATIONX <= 100 & LOCATIONY >= 37 & LOCATIONY <= 63 ~ "Målområdet",
-          # Det store felt (straffesparksfeltet, ekskl. målområdet)
           LOCATIONX >= 84 & LOCATIONX < 94 & LOCATIONY >= 19 & LOCATIONY <= 81 ~ "Det store felt",
-          # Uden for feltet
           TRUE ~ "Uden for feltet"
         )
       ) %>%
@@ -326,7 +335,6 @@ server <- function(input, output, session) {
         `Antal skud` = n(),
         .groups = "drop"
       ) %>%
-      # Sorter zoner i en logisk rækkefølge
       mutate(Zone = factor(Zone, levels = c("Målområdet", "Det store felt", "Uden for feltet"))) %>%
       arrange(Zone)
     
@@ -377,80 +385,203 @@ server <- function(input, output, session) {
       formatStyle("AUC", backgroundColor = styleInterval(c(0.8, 0.85), c("#FFE6E6", "#FFF0E6", "#E6FFE6")))
   })
   
-  # Hold Analyse: Hold- og kampvælger
+  output$confusion_matrix_table <- renderPrint({
+    # Tjek inputdata før beregning
+    cat("=== Debugging Input Data ===\n")
+    cat("Length of test_data_yn$SHOTISGOAL: ", length(test_data_yn$SHOTISGOAL), "\n")
+    cat("Number of NAs in test_data_yn$SHOTISGOAL: ", sum(is.na(test_data_yn$SHOTISGOAL)), "\n")
+    cat("First few test_data_yn$SHOTISGOAL: ", paste(head(test_data_yn$SHOTISGOAL, 5), collapse = ", "), "\n")
+    cat("Length of test_data$SHOTISGOAL: ", length(test_data$SHOTISGOAL), "\n")
+    cat("Number of NAs in test_data$SHOTISGOAL: ", sum(is.na(test_data$SHOTISGOAL)), "\n")
+    cat("First few test_data$SHOTISGOAL: ", paste(head(test_data$SHOTISGOAL, 5), collapse = ", "), "\n")
+    
+    cat("Length of xgb_pred: ", length(xgb_pred), "\n")
+    cat("Number of NAs in xgb_pred: ", sum(is.na(xgb_pred)), "\n")
+    cat("First few xgb_pred: ", paste(head(xgb_pred, 5), collapse = ", "), "\n")
+    
+    cat("Length of rf_test: ", length(rf_test), "\n")
+    cat("Number of NAs in rf_test: ", sum(is.na(rf_test)), "\n")
+    cat("First few rf_test: ", paste(head(rf_test, 5), collapse = ", "), "\n")
+    
+    cat("Length of tree_probs: ", length(tree_probs), "\n")
+    cat("Number of NAs in tree_probs: ", sum(is.na(tree_probs)), "\n")
+    cat("First few tree_probs: ", paste(head(tree_probs, 5), collapse = ", "), "\n")
+    
+    cat("Length of glm_probs: ", length(glm_probs), "\n")
+    cat("Number of NAs in glm_probs: ", sum(is.na(glm_probs)), "\n")
+    cat("First few glm_probs: ", paste(head(glm_probs, 5), collapse = ", "), "\n")
+    
+    cat("Length of test_data$SHOTXG: ", length(test_data$SHOTXG), "\n")
+    cat("Number of NAs in test_data$SHOTXG: ", sum(is.na(test_data$SHOTXG)), "\n")
+    cat("First few test_data$SHOTXG: ", paste(head(test_data$SHOTXG, 5), collapse = ", "), "\n")
+    cat("============================\n\n")
+    
+    threshold <- 0.35
+    
+    compute_confusion_matrix <- function(predictions, actual, model_name) {
+      # Log forudsigelsernes detaljer for fejlfinding
+      message("Model: ", model_name)
+      message("Length of predictions: ", length(predictions))
+      message("Length of actual: ", length(actual))
+      message("Predictions range: ", paste(range(predictions, na.rm = TRUE), collapse = " to "))
+      message("Number of NAs in predictions: ", sum(is.na(predictions)))
+      message("First few predictions: ", paste(head(predictions, 5), collapse = ", "))
+      message("Class of actual: ", class(actual))
+      message("First few actual values: ", paste(head(actual, 5), collapse = ", "))
+      
+      # Konverter actual til numerisk
+      if (is.factor(actual)) {
+        # Tjek levels og map dem korrekt
+        if (all(levels(actual) %in% c("no", "yes"))) {
+          actual <- as.numeric(actual == "yes")  # "no" -> 0, "yes" -> 1
+        } else if (all(levels(actual) %in% c("0", "1"))) {
+          actual <- as.numeric(as.character(actual))  # "0" -> 0, "1" -> 1
+        } else {
+          return(list(error = paste("Unexpected factor levels in actual:", paste(levels(actual), collapse = ", "))))
+        }
+        message("Actual converted to numeric. First few values: ", paste(head(actual, 5), collapse = ", "))
+      }
+      
+      # Tjek for NA-værdier og længde
+      if (length(predictions) != length(actual)) {
+        return(list(error = paste("Length mismatch: predictions (", length(predictions), ") does not match actual (", length(actual), ")")))
+      }
+      
+      # Fjern NA-værdier fra både predictions og actual
+      valid_idx <- !is.na(predictions) & !is.na(actual)
+      if (sum(valid_idx) == 0) {
+        return(list(error = "No valid data after removing NAs."))
+      }
+      predictions <- predictions[valid_idx]
+      actual <- actual[valid_idx]
+      message("Length after removing NAs - predictions: ", length(predictions), ", actual: ", length(actual))
+      
+      # Normaliser forudsigelser til intervallet [0, 1], hvis nødvendigt
+      pred_range <- range(predictions, na.rm = TRUE)
+      if (pred_range[2] > 1 || pred_range[1] < 0) {
+        predictions <- (predictions - pred_range[1]) / (pred_range[2] - pred_range[1])
+        message("Normalized predictions range: ", paste(range(predictions, na.rm = TRUE), collapse = " to "))
+      }
+      
+      # Konverter til faktorer med faste niveauer
+      predicted <- as.numeric(predictions >= threshold)
+      predicted <- factor(predicted, levels = c(0, 1), labels = c("Not Goal", "Goal"))
+      actual <- factor(actual, levels = c(0, 1), labels = c("Not Goal", "Goal"))
+      
+      # Beregn konfusionsmatrix med caret
+      cm <- caret::confusionMatrix(predicted, actual, positive = "Goal")
+      
+      return(cm)
+    }
+    
+    # Liste til at gemme konfusionsmatricer
+    confusion_matrices <- list()
+    
+    if ("Random Forest" %in% input$selected_models) {
+      confusion_matrices[["Random Forest"]] <- compute_confusion_matrix(rf_test, test_data_yn$SHOTISGOAL, "Random Forest")
+    }
+    if ("Decision Tree" %in% input$selected_models) {
+      confusion_matrices[["Decision Tree"]] <- compute_confusion_matrix(tree_probs, test_data_yn$SHOTISGOAL, "Decision Tree")
+    }
+    if ("XGBoost" %in% input$selected_models) {
+      confusion_matrices[["XGBoost"]] <- compute_confusion_matrix(xgb_pred, test_data_yn$SHOTISGOAL, "XGBoost")
+    }
+    if ("GLM" %in% input$selected_models) {
+      confusion_matrices[["GLM"]] <- compute_confusion_matrix(glm_probs, test_data_yn$SHOTISGOAL, "GLM")
+    }
+    if ("WyScout" %in% input$selected_models) {
+      confusion_matrices[["WyScout"]] <- compute_confusion_matrix(test_data$SHOTXG, test_data$SHOTISGOAL, "WyScout")
+    }
+    
+    # Hvis ingen modeller er valgt, vis en besked
+    if (length(confusion_matrices) == 0) {
+      cat("Vælg mindst én model for at se konfusionsmatrixen.\n")
+      return()
+    }
+    
+    # Udfør print for hver model
+    for (model_name in names(confusion_matrices)) {
+      result <- confusion_matrices[[model_name]]
+      cat("=== Confusion Matrix for", model_name, "===\n")
+      if (is.list(result) && !is.null(result$error)) {
+        cat("Error:", result$error, "\n\n")
+      } else {
+        print(result)
+        cat("\n")
+      }
+    }
+  })
+  
+  # Kamp Analyse: Hold- og kampvælger
   output$match_selector <- renderUI({
-    req(input$selected_team)
-    # Log valgt hold
-    message("Valgt hold: ", input$selected_team)
-    # Hent unikke kampe for det valgte hold
+    req(input$match_selected_team)
+    message("Valgt hold (Kamp Analyse): ", input$match_selected_team)
     matches <- allshotevents %>%
-      filter(TEAMNAME.x == input$selected_team) %>%
+      filter(TEAMNAME.x == input$match_selected_team) %>%
       distinct(MATCH_WYID.x, MATCH_LABEL) %>%
       filter(!is.na(MATCH_LABEL)) %>%
       arrange(MATCH_WYID.x)
     
-    # Log antallet af kampe
-    message("Antal kampe for ", input$selected_team, ": ", nrow(matches))
+    message("Antal kampe for ", input$match_selected_team, ": ", nrow(matches))
     
-    # Hvis der ikke er nogen gyldige kampe, returner en tom dropdown
     if (nrow(matches) == 0) {
-      return(selectInput("selected_match", "Vælg kamp:", choices = c("Ingen kampe tilgængelige" = "")))
+      return(selectInput("match_selected_match", "Vælg kamp:", choices = c("Ingen kampe tilgængelige" = "")))
     }
     
-    # Opret en named list: label som navn, ID som værdi
     match_choices <- setNames(matches$MATCH_WYID.x, matches$MATCH_LABEL)
     match_choices <- as.list(c("Alle kampe" = "Alle kampe", match_choices))
     
-    selectInput("selected_match", "Vælg kamp:", choices = match_choices)
+    selectInput("match_selected_match", "Vælg kamp:", choices = match_choices)
   })
   
-  get_filtered_team_data <- reactive({
-    # Log starten af funktionen
-    message("Kører get_filtered_team_data...")
-    message("Valgt hold: ", input$selected_team)
-    message("Valgt kamp: ", input$selected_match)
+  get_filtered_match_data <- reactive({
+    message("Kører get_filtered_match_data...")
+    message("Valgt hold: ", input$match_selected_team)
+    message("Valgt kamp: ", input$match_selected_match)
     
-    # Find alle MATCH_WYID.x, hvor det valgte hold deltog
     match_ids <- allshotevents %>%
-      filter(TEAMNAME.x == input$selected_team) %>%
+      filter(TEAMNAME.x == input$match_selected_team) %>%
       distinct(MATCH_WYID.x) %>%
       pull(MATCH_WYID.x)
     
-    # Log antallet af kampe
-    message("Antal kampe fundet for ", input$selected_team, ": ", length(match_ids))
+    message("Antal kampe fundet for ", input$match_selected_team, ": ", length(match_ids))
+    message("match_ids: ", paste(match_ids, collapse = ", "))
     
-    # Hent alle skud fra disse kampe
     df <- allshotevents %>%
       filter(MATCH_WYID.x %in% match_ids)
     
-    # Log antallet af rækker efter match-filtrering
     message("Antal rækker efter match-filtrering: ", nrow(df))
     
-    # Hvis en specifik kamp er valgt, filtrer yderligere
-    if (!is.null(input$selected_match) && input$selected_match != "Alle kampe" && input$selected_match != "") {
-      df <- df %>% filter(MATCH_WYID.x == input$selected_match)
-      # Log antallet af rækker efter kampfiltrering
+    if (!is.null(input$match_selected_match) && input$match_selected_match != "Alle kampe" && input$match_selected_match != "") {
+      selected_match_id <- as.numeric(input$match_selected_match)
+      message("Type af MATCH_WYID.x: ", class(df$MATCH_WYID.x))
+      message("Type af selected_match_id: ", class(selected_match_id))
+      message("selected_match_id: ", selected_match_id)
+      
+      df <- df %>% filter(MATCH_WYID.x == selected_match_id)
       message("Antal rækker efter specifik kampfiltrering: ", nrow(df))
     }
+    
+    message("Antal rækker i df: ", nrow(df))
+    message("Antal NA i IMAGEDATAURL.y: ", sum(is.na(df$IMAGEDATAURL.y)))
+    message("Unikke værdier i IMAGEDATAURL.y: ", paste(unique(df$IMAGEDATAURL.y), collapse = ", "))
     
     df
   })
   
-  output$team_xg_plot <- renderPlotly({
-    req(input$model_choice)
-    df <- get_filtered_team_data()
+  output$match_xg_plot <- renderPlotly({
+    req(input$match_model_choice)
+    df <- get_filtered_match_data()
     
-    # Log antallet af rækker i df
-    message("Antal rækker i df (team_xg_plot): ", nrow(df))
+    message("Antal rækker i df (match_xg_plot): ", nrow(df))
     
-    # Hvis der ikke er nogen rækker, vis en tom bane med en besked
     if (nrow(df) == 0) {
       p <- ggplot() +
         annotate_pitch(dimensions = pitch_wyscout, colour = "grey80", fill = "#f5f5f5") +
         coord_fixed(xlim = c(0, 100), ylim = c(0, 100)) +
         theme_pitch() +
         labs(
-          title = sprintf("xG for %s", input$selected_team),
+          title = sprintf("xG for %s", input$match_selected_team),
           subtitle = "Ingen skud tilgængelige for dette hold/kamp."
         ) +
         theme(
@@ -460,10 +591,9 @@ server <- function(input, output, session) {
       return(ggplotly(p))
     }
     
-    # Hent MATCH_LABEL for den valgte kamp (hvis relevant)
-    selected_match_label <- if (!is.null(input$selected_match) && input$selected_match != "Alle kampe" && input$selected_match != "") {
+    selected_match_label <- if (!is.null(input$match_selected_match) && input$match_selected_match != "Alle kampe" && input$match_selected_match != "") {
       df %>%
-        filter(MATCH_WYID.x == input$selected_match) %>%
+        filter(MATCH_WYID.x == as.numeric(input$match_selected_match)) %>%
         pull(MATCH_LABEL) %>%
         unique() %>%
         first()
@@ -471,42 +601,25 @@ server <- function(input, output, session) {
       "Hele sæsonen"
     }
     
-    # Forbered data baseret på valgt model og spejl koordinater for modstanderskud
     df <- df %>%
       mutate(
         Goal_Label = ifelse(SHOTISGOAL == 1, "Mål", "Ikke mål"),
-        Model = case_when(
-          "XGBoost" %in% input$model_choice ~ "XGBoost",
-          "WyScout" %in% input$model_choice ~ "WyScout",
-          TRUE ~ "XGBoost" # Default til XGBoost, hvis ingen model er valgt
-        ),
-        xG = case_when(
-          Model == "XGBoost" ~ xG_XGB,
-          Model == "WyScout" ~ SHOTXG
-        ),
-        # Identificer om det er det valgte hold eller modstanderen baseret på TEAMNAME.y
-        Team_Type = ifelse(TEAMNAME.y == input$selected_team, "Valgt Hold", "Modstander"),
-        # Spejl koordinater for modstanderskud
+        Model = "XGBoost",
+        xG = xG_XGB,
+        Team_Type = ifelse(TEAMNAME.y == input$match_selected_team, "Valgt Hold", "Modstander"),
         Adjusted_X = ifelse(Team_Type == "Modstander", 100 - LOCATIONX, LOCATIONX),
         Adjusted_Y = ifelse(Team_Type == "Modstander", 100 - LOCATIONY, LOCATIONY),
-        # Tekst til hover-tooltip
         Hover_Text = paste(
-          "xG_XGB: ", round(xG_XGB, 3), "<br>",
+          "xG: ", round(xG_XGB, 3), "<br>",
           "Spiller: ", SHORTNAME.y, "<br>",
           "Hold: ", TEAMNAME.y, "<br>",
           "Type: ", Team_Type
         )
-      ) %>%
-      filter(Model %in% input$model_choice)
+      )
     
-    # Log antallet af rækker efter model-filtrering
-    message("Antal rækker efter model-filtrering: ", nrow(df))
-    
-    # Log antallet af skud fra hvert hold
     message("Antal skud fra Valgt Hold: ", nrow(df %>% filter(Team_Type == "Valgt Hold")))
     message("Antal skud fra Modstander: ", nrow(df %>% filter(Team_Type == "Modstander")))
     
-    # Grundlæggende plotopsætning med justerede koordinater
     p <- ggplot(df, aes(x = Adjusted_X, y = Adjusted_Y, text = Hover_Text, color = Team_Type)) +
       annotate_pitch(dimensions = pitch_wyscout, colour = "grey80", fill = "#f5f5f5") +
       geom_point(aes(size = xG, fill = xG, shape = Goal_Label), alpha = 0.7) +
@@ -517,7 +630,7 @@ server <- function(input, output, session) {
       coord_fixed(xlim = c(0, 100), ylim = c(0, 100)) +
       theme_pitch() +
       labs(
-        title = sprintf("xG for %s", input$selected_team),
+        title = sprintf("xG for %s", input$match_selected_team),
         subtitle = ifelse(selected_match_label == "Hele sæsonen", 
                           "Hele sæsonen", 
                           paste("Kamp:", selected_match_label))
@@ -527,7 +640,6 @@ server <- function(input, output, session) {
         plot.subtitle = element_text(face = "italic", hjust = 0.5)
       )
     
-    # Konverter til interaktivt plotly-plot
     ggplotly(p, tooltip = "text") %>%
       layout(
         hovermode = "closest",
@@ -535,106 +647,126 @@ server <- function(input, output, session) {
       )
   })
   
-  # Statistisk Oversigt for Hold Analyse
-  output$xg_summary_table_team <- renderTable({
-    df <- get_filtered_team_data()
+  output$match_summary_table <- renderDT({
+    df <- get_filtered_match_data()
     
-    # Log antallet af rækker
-    message("Antal rækker i xg_summary_table_team: ", nrow(df))
+    message("Antal rækker i match_summary_table: ", nrow(df))
     
-    # Hvis der ikke er nogen rækker, returner en tom tabel med en besked
-    if (nrow(df) == 0) {
-      return(data.frame(Gruppe = "Ingen data tilgængelige"))
-    }
-    
-    df %>%
-      mutate(SHOTISGOAL = factor(SHOTISGOAL, levels = c(0, 1), labels = c("Ikke mål", "Mål"))) %>%
-      group_by(Gruppe = SHOTISGOAL) %>%
-      summarise(
-        `WyScout – Gennemsnit` = mean(SHOTXG, na.rm = TRUE),
-        `WyScout – SD` = sd(SHOTXG, na.rm = TRUE),
-        `XGBoost – Gennemsnit` = mean(xG_XGB, na.rm = TRUE),
-        `XGBoost – SD` = sd(xG_XGB, na.rm = TRUE),
-        .groups = "drop"
-      ) %>%
-      bind_rows(
-        df %>%
-          summarise(
-            Gruppe = "Alle skud",
-            `WyScout – Gennemsnit` = mean(SHOTXG, na.rm = TRUE),
-            `WyScout – SD` = sd(SHOTXG, na.rm = TRUE),
-            `XGBoost – Gennemsnit` = mean(xG_XGB, na.rm = TRUE),
-            `XGBoost – SD` = sd(xG_XGB, na.rm = TRUE)
-          )
-      )
-  }, digits = 3)
-  
-  # Gennemsnitlig xG pr. Zone for Hold Analyse
-  output$xg_zone_table_team <- renderTable({
-    df <- get_filtered_team_data()
-    
-    # Log antallet af rækker
-    message("Antal rækker i xg_zone_table_team: ", nrow(df))
-    
-    # Hvis der ikke er nogen rækker, returner en tom tabel med en besked
-    if (nrow(df) == 0) {
-      return(data.frame(Zone = "Ingen data tilgængelige"))
-    }
-    
-    df_zones <- df %>%
-      mutate(
-        Zone = case_when(
-          LOCATIONX >= 94 & LOCATIONX <= 100 & LOCATIONY >= 37 & LOCATIONY <= 63 ~ "Målområdet",
-          LOCATIONX >= 84 & LOCATIONX < 94 & LOCATIONY >= 19 & LOCATIONY <= 81 ~ "Det store felt",
-          TRUE ~ "Uden for feltet"
-        )
-      ) %>%
-      group_by(Zone) %>%
-      summarise(
-        `XGBoost – Gennemsnit` = mean(xG_XGB, na.rm = TRUE),
-        `XGBoost – SD` = sd(xG_XGB, na.rm = TRUE),
-        `WyScout – Gennemsnit` = mean(SHOTXG, na.rm = TRUE),
-        `WyScout – SD` = sd(SHOTXG, na.rm = TRUE),
-        `Antal skud` = n(),
-        .groups = "drop"
-      ) %>%
-      mutate(Zone = factor(Zone, levels = c("Målområdet", "Det store felt", "Uden for feltet"))) %>%
-      arrange(Zone)
-    
-    df_zones
-  }, digits = 3)
-  
-  output$team_summary_table <- renderDT({
-    df <- get_filtered_team_data()
-    
-    # Log antallet af rækker
-    message("Antal rækker i team_summary_table: ", nrow(df))
-    
-    # Hvis der ikke er nogen rækker, returner en tom tabel med en besked
     if (nrow(df) == 0) {
       return(datatable(data.frame(Message = "Ingen data tilgængelige")))
     }
     
+    df <- df %>%
+      mutate(
+        Team_Type = ifelse(TEAMNAME.y == input$match_selected_team, "Valgt Hold", "Modstander")
+      )
+    
+    summary_df <- df %>%
+      group_by(Team_Type, TEAMNAME.y) %>%
+      summarise(
+        `Antal skud` = n(),
+        `Mål` = sum(SHOTISGOAL == 1, na.rm = TRUE),
+        `Mål (%)` = round(mean(SHOTISGOAL == 1, na.rm = TRUE) * 100, 1),
+        `xG (sum)` = sum(xG_XGB, na.rm = TRUE),
+        `Over-/underpræstation` = sum(SHOTISGOAL == 1, na.rm = TRUE) - sum(xG_XGB, na.rm = TRUE),
+        `Logo` = first(IMAGEDATAURL.y, default = "https://via.placeholder.com/20"),
+        .groups = "drop"
+      ) %>%
+      mutate(
+        `Hold` = TEAMNAME.y,
+        across(where(is.numeric), ~round(.x, 2))
+      )
+    
+    summary_df <- summary_df %>%
+      mutate(
+        Hold = paste0('<img src="', Logo, '" class="logo-img"></img> ', Hold)
+      ) %>%
+      select(
+        `Hold`,
+        `Antal skud`,
+        `Mål`,
+        `Mål (%)`,
+        `xG (sum)`,
+        `Over-/underpræstation`
+      )
+    
     datatable(
-      df %>%
-        summarise(
-          `Antal skud` = n(),
-          `Mål` = sum(SHOTISGOAL == 1, na.rm = TRUE),
-          `Mål (%)` = round(mean(SHOTISGOAL == 1, na.rm = TRUE) * 100, 1),
-          `XGBoost xG (gns)` = mean(xG_XGB, na.rm = TRUE),
-          `XGBoost xG (sum)` = sum(xG_XGB, na.rm = TRUE),
-          `WyScout xG (gns)` = mean(SHOTXG, na.rm = TRUE),
-          `WyScout xG (sum)` = sum(SHOTXG, na.rm = TRUE),
-          `Over-/underpræstation (xGBoost)` = sum(SHOTISGOAL == 1, na.rm = TRUE) - sum(xG_XGB, na.rm = TRUE),
-          `Over-/underpræstation (WyScout)` = sum(SHOTISGOAL == 1, na.rm = TRUE) - sum(SHOTXG, na.rm = TRUE)
-        ) %>%
-        mutate(across(where(is.numeric), ~round(.x, 2))),
+      summary_df,
+      escape = FALSE,
       options = list(pageLength = 5, searching = FALSE, lengthChange = FALSE),
       rownames = FALSE
     ) %>%
-      formatStyle("Over-/underpræstation (xGBoost)", 
+      formatStyle("Over-/underpræstation", 
+                  backgroundColor = styleInterval(c(-0.5, 0.5), c("#FFE6E6", "#E6FFE6", "#E6FFE6")))
+  })
+  
+  get_filtered_team_data <- reactive({
+    message("Kører get_filtered_team_data...")
+    message("Valgte hold (Hold Analyse): ", paste(input$team_selected_teams, collapse = ", "))
+    
+    df <- allshotevents
+    
+    if (!is.null(input$team_selected_teams) && length(input$team_selected_teams) > 0) {
+      df <- df %>%
+        filter(TEAMNAME.x %in% input$team_selected_teams)
+    }
+    
+    message("Antal rækker efter filtrering: ", nrow(df))
+    message("Antal NA i IMAGEDATAURL.y: ", sum(is.na(df$IMAGEDATAURL.y)))
+    message("Unikke værdier i IMAGEDATAURL.y: ", paste(unique(df$IMAGEDATAURL.y), collapse = ", "))
+    
+    df
+  })
+  
+  output$team_summary_table <- renderDT({
+    df <- get_filtered_team_data()
+    
+    message("Antal rækker i team_summary_table: ", nrow(df))
+    
+    if (nrow(df) == 0) {
+      return(datatable(data.frame(Message = "Ingen data tilgængelige")))
+    }
+    
+    summary_df <- df %>%
+      group_by(TEAMNAME.x) %>%
+      summarise(
+        `Hold` = first(TEAMNAME.x),
+        `Antal skud` = n(),
+        `Mål` = sum(SHOTISGOAL == 1, na.rm = TRUE),
+        `Mål (%)` = round(mean(SHOTISGOAL == 1, na.rm = TRUE) * 100, 1),
+        `xG (sum)` = sum(xG_XGB, na.rm = TRUE),
+        `Over-/underpræstation` = sum(SHOTISGOAL == 1, na.rm = TRUE) - sum(xG_XGB, na.rm = TRUE),
+        `Logo` = first(IMAGEDATAURL.y, default = "https://via.placeholder.com/20"),
+        .groups = "drop"
+      ) %>%
+      mutate(
+        across(where(is.numeric), ~round(.x, 2))
+      )
+    
+    summary_df <- summary_df %>%
+      mutate(
+        Hold = paste0('<img src="', Logo, '" class="logo-img"></img> ', Hold)
+      ) %>%
+      select(
+        `Hold`,
+        `Antal skud`,
+        `Mål`,
+        `Mål (%)`,
+        `xG (sum)`,
+        `Over-/underpræstation`
+      ) %>%
+      arrange(desc(`xG (sum)`))
+    
+    datatable(
+      summary_df,
+      escape = FALSE,
+      options = list(paging = FALSE, searching = FALSE, lengthChange = FALSE),
+      rownames = FALSE
+    ) %>%
+      formatStyle("Over-/underpræstation", 
                   backgroundColor = styleInterval(c(-0.5, 0.5), c("#FFE6E6", "#E6FFE6", "#E6FFE6")))
   })
 }
 
+# Start Shiny appen
 shinyApp(ui, server)
