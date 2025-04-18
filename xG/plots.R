@@ -6,6 +6,7 @@ library(tidyverse)
 dbListTables(con)
 allmatch_raw <- dbReadTable(con, "wyscout_matchdetail_base_sl") 
 
+
 allshotevents <- allshotevents %>%
   mutate(MATCH_WYID = MATCH_WYID.x)
 
@@ -890,6 +891,38 @@ ggplot(allshotevents, aes(x = LOCATIONX, y = LOCATIONY)) +
     plot.title = element_text(face = "bold", hjust = 0.5),
     plot.subtitle = element_text(face = "italic", hjust = 0.5)
   )
+
+ggplot(
+  allshotevents %>% arrange(SHOTISGOAL),
+  aes(x = LOCATIONX, y = LOCATIONY)
+) +
+  annotate_pitch(dimensions = pitch_wyscout, colour = "grey80", fill = "white") +
+  geom_point(
+    aes(
+      color = factor(SHOTISGOAL),
+      alpha = ifelse(SHOTISGOAL == 1, 0.1, 0.8)
+    ),
+    size = 3
+  ) +
+  scale_color_manual(
+    values = c("0" = "#0D1C8A", "1" = "#FDBA21"),
+    labels = c("0" = "Ikke mål", "1" = "Mål"),
+    name = "Resultat"
+  ) +
+  scale_alpha_identity() +  # Brug præcis den alpha vi angiver
+  coord_fixed(xlim = c(0, 100), ylim = c(0, 100)) +
+  theme_pitch() +
+  labs(
+    title = "Skud i Superligen sæson 2023/2024",
+    subtitle = "Klart størstedelen af alle skud der blev til mål, blev gjort tættere ved målet"
+  ) +
+  theme(
+    plot.title = element_text(face = "bold", hjust = 0.5),
+    plot.subtitle = element_text(face = "italic", hjust = 0.5),
+    legend.position = "top"
+  )
+
+
 
 
 
