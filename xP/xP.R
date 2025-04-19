@@ -216,6 +216,68 @@ xp_sum <- xp_results %>%
   summarise(Total_xP = round(sum(Team_xP, na.rm = TRUE), 2)) %>%
   arrange(desc(Total_xP))
 
+#### For all Teams - WyScout version ####
+xp_results_wyscout <- data.frame()
+all_teams <- unique(allshotevents$TEAMNAME.x)
+
+for (team in all_teams) {
+  team_matches <- allshotevents %>%
+    filter(TEAMNAME.x == team) %>%
+    distinct(MATCH_WYID.x, .keep_all = TRUE) %>%
+    pull(MATCH_WYID.x)
+  
+  for (match_id in team_matches) {
+    print(paste("Hold:", team, "| Match:", match_id))
+    
+    match_data_wyscout <- allshotevents %>%
+      filter(MATCH_WYID.x == match_id)
+    
+    match_xg_wyscout <- match_data_wyscout %>%
+      group_by(TEAMNAME.x) %>%
+      summarise(xG_wyscout = sum(SHOTXG, na.rm = TRUE)) %>%
+      arrange(desc(TEAMNAME.x == team))
+    
+    score_matrix_wyscout <- expand.grid(
+      team_goals = 0:5,
+      opp_goals = 0:5
+    )
+    
+    probs_wyscout <- dpois(score_matrix_wyscout$team_goals, match_xg_wyscout$xG_wyscout[1]) *
+      dpois(score_matrix_wyscout$opp_goals, match_xg_wyscout$xG_wyscout[2])
+    
+    p_win_wyscout  <- sum(probs_wyscout[score_matrix_wyscout$team_goals > score_matrix_wyscout$opp_goals])
+    p_draw_wyscout <- sum(probs_wyscout[score_matrix_wyscout$team_goals == score_matrix_wyscout$opp_goals])
+    p_loss_wyscout <- sum(probs_wyscout[score_matrix_wyscout$team_goals < score_matrix_wyscout$opp_goals])
+    
+    xP_team_wyscout <- 3 * p_win_wyscout + 1 * p_draw_wyscout
+    
+    probs_opp_wyscout <- dpois(score_matrix_wyscout$opp_goals, match_xg_wyscout$xG_wyscout[2]) *
+      dpois(score_matrix_wyscout$team_goals, match_xg_wyscout$xG_wyscout[1])
+    
+    p_win_opp_wyscout  <- sum(probs_opp_wyscout[score_matrix_wyscout$opp_goals > score_matrix_wyscout$team_goals])
+    p_draw_opp_wyscout <- sum(probs_opp_wyscout[score_matrix_wyscout$opp_goals == score_matrix_wyscout$team_goals])
+    p_loss_opp_wyscout <- sum(probs_opp_wyscout[score_matrix_wyscout$opp_goals < score_matrix_wyscout$team_goals])
+    
+    xP_opp_wyscout <- 3 * p_win_opp_wyscout + 1 * p_draw_opp_wyscout
+    
+    xp_results_wyscout <- rbind(xp_results_wyscout, data.frame(
+      Team = match_xg_wyscout$TEAMNAME.x[1],
+      Team_xP_wyscout = round(xP_team_wyscout, 3),
+      Opponent = match_xg_wyscout$TEAMNAME.x[2],
+      Opponent_xP_wyscout = round(xP_opp_wyscout, 3),
+      MATCH_WYID = match_id
+    ))
+  }
+}
+
+xp_sum_wyscout <- xp_results_wyscout %>%
+  group_by(Team) %>%
+  summarise(Total_xP_wyscout = round(sum(Team_xP_wyscout, na.rm = TRUE), 2)) %>%
+  arrange(desc(Total_xP_wyscout))
+
+
+
+
 
 # get actual points
 team_rankings_2324 <- read_csv("xG/Scraped_Data/Team_Rankings_2324.csv")
