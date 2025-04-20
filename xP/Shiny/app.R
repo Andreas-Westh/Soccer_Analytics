@@ -12,37 +12,36 @@ ui <- fluidPage(
   tags$head(
     # Tilføj Font Awesome for ikoner
     tags$link(rel = "stylesheet", href = "https://cdnjs.cloudflare.com/ajax/libs/font-awesome/5.15.4/css/all.min.css"),
-    # Custom CSS for at style slider og play-knap
+    # CSS for at flytte play/pause-knapperne ned og style gradient
     tags$style(HTML("
-      .irs--shiny .irs-handle { 
-        cursor: pointer; 
+      .irs--shiny .irs-grid-text.js-grid-text-0,
+      .irs--shiny .irs-grid-text.js-grid-text-1 {
+        margin-top: 10px; /* Flytter knapperne lidt ned */
       }
-      .irs--shiny .irs-slider { 
-        cursor: pointer; 
+      .dt-up-arrow {
+        color: green !important; /* Grøn pil op for højere xP (XGBOOST) */
       }
-      .js-irs-0 .irs-bar { 
-        background-color: #007bff; 
-        border-color: #007bff; 
+      .dt-down-arrow {
+        color: red !important; /* Rød pil ned for lavere xP (XGBOOST) */
       }
-      .js-irs-0 .irs-single { 
-        background-color: #007bff; 
-        color: white; 
+      .dt-equal {
+        color: gray !important; /* Grå for lighed */
       }
-      .play-button {
-        font-size: 18px; 
-        color: #007bff; 
-        cursor: pointer;
-        padding: 8px 14px;
-        border: 2px solid #007bff;
-        border-radius: 5px;
-        background-color: #ffffff;
+      /* Gradient-styling for Placering forskel som tekstfarve */
+      .dt-diff-0 {
+        color: #228B22 !important; /* Mørk grøn for forskel 0 (bedste) */
       }
-      .play-button:hover {
-        color: #ffffff;
-        background-color: #007bff;
+      .dt-diff-1 {
+        color: #2E8B57 !important; /* Mørkere grøn for forskel ±1 */
       }
-      .slider-container {
-        margin-bottom: 40px; /* Afstand mellem slider og knap */
+      .dt-diff-2 {
+        color: #CD5C5C !important; /* Mørkere lys rød for forskel ±2 */
+      }
+      .dt-diff-3 {
+        color: #B22222 !important; /* Mellem rød for forskel ±3 */
+      }
+      .dt-diff-4 {
+        color: #8B0000 !important; /* Mørk rød for forskel ±4 eller mere */
       }
     "))
   ),
@@ -50,31 +49,26 @@ ui <- fluidPage(
     column(
       width = 6,
       plotOutput("xpPlot", height = "700px"),
-      # Overskrift for at gøre formålet klart
-      h4("Afspil historisk udvikling gennem sæsonen"),
-      # Slider uden tooltip-ikon
-      div(
-        class = "slider-container",
-        sliderInput(
-          "kampSlider", 
-          label = "Vælg kampnummer:",
-          min = 1, 
-          max = 33, 
-          value = 33, 
-          step = 1,
-          animate = animationOptions(
-            interval = 500, 
-            loop = FALSE,
-            playButton = tags$button(
-              class = "play-button",
-              tags$i(class = "fa fa-play", style = "margin-right: 5px;"),
-              "Afspil animation"
-            ),
-            pauseButton = tags$button(
-              class = "play-button",
-              tags$i(class = "fa fa-pause", style = "margin-right: 5px;"),
-              "Pause"
-            )
+      h4("Afspil en historisk udvikling af xP gennem sæsonen"),
+      sliderInput(
+        "kampSlider", 
+        label = "Kampnummer:",
+        min = 1, 
+        max = 33, 
+        value = 33, 
+        step = 1,
+        animate = animationOptions(
+          interval = 500, 
+          loop = FALSE,
+          playButton = tags$button(
+            tags$i(class = "fa fa-play", style = "margin-right: 5px;"),
+            "Afspil animation",
+            style = "background-color: #007bff; color: white; padding: 8px 16px; border: none; border-radius: 5px; font-size: 16px;"
+          ),
+          pauseButton = tags$button(
+            tags$i(class = "fa fa-pause", style = "margin-right: 5px;"),
+            "Pause",
+            style = "background-color: #dc3545; color: white; padding: 8px 16px; border: none; border-radius: 5px; font-size: 16px;"
           )
         )
       )
@@ -82,18 +76,30 @@ ui <- fluidPage(
     column(
       width = 6,
       h4("Statistik per hold"),
-      DTOutput("xpTable")
+      # Dropdown til at vælge hold
+      selectInput(
+        "teamFilter",
+        label = "Filtrér efter hold:",
+        choices = NULL, # Udfyldes dynamisk i serveren
+        selected = NULL,
+        multiple = FALSE
+      ),
+      DTOutput("xpTable"),
+      # Ny oversigtstabel
+      h4("Oversigt over xP på tværs af hold"),
+      DTOutput("summaryTable")
     )
   )
 )
 
-
-server <- function(input, output) {
+server <- function(input, output, session) {
   # Load data
   xp_sum <- readRDS("xp_sum.rds")
   xp_last_frame <- readRDS("xp_last_frame.rds")
   xp_sum_wyscout <- readRDS("xp_sum_wyscout.rds")
   xp_results_matches <- readRDS("xp_results_matches.rds")
+  xp_sum$Total_xP <- round(xp_sum$Total_xP, 0)
+  xp_sum_wyscout$Total_xP_wyscout <- round(xp_sum_wyscout$Total_xP_wyscout, 0)
   
   # Calculate number of matches per team using the highest kamp_nummer
   matches_per_team <- xp_results_matches %>%
@@ -119,11 +125,27 @@ server <- function(input, output) {
       Team_with_logo = paste0(
         '<img src="', logo_url, '" width="30" height="30" style="vertical-align:middle; margin-right:5px;">',
         Team
-      )
+      ),
+      # Ny kolonne for pil baseret på xP forskel
+      xP_Comparison = case_when(
+        Total_xP > Total_xP_wyscout ~ '<i class="fas fa-arrow-up dt-up-arrow"></i>',
+        Total_xP < Total_xP_wyscout ~ '<i class="fas fa-arrow-down dt-down-arrow"></i>',
+        Total_xP == Total_xP_wyscout ~ '<i class="fas fa-equals dt-equal"></i>',
+        TRUE ~ ''
+      ),
+      # Beregn forskel mellem xP_rank og Real_rank
+      Rank_Difference = xP_rank - Real_rank
     )
   
-  # Team colors
-  team_colors <- c(
+  # Opdater dropdown-valgmuligheder dynamisk
+  observe({
+    updateSelectInput(session, "teamFilter",
+                      choices = c("Alle hold", unique(xp_sum$Team)),
+                      selected = "Alle hold")
+  })
+  
+  # Team colors som navngivet liste for at undgå jsonlite advarsel
+  team_colors <- list(
     "Brøndby" = "#ffe100",
     "AGF" = "white",
     "København" = "white",
@@ -202,28 +224,46 @@ server <- function(input, output) {
       )
   })
   
-  # Updated stats table
+  # Updated stats table (per hold)
   output$xpTable <- renderDT({
-    xp_sum %>%
+    # Filtrér data baseret på valgt hold
+    table_data <- if (input$teamFilter == "Alle hold") {
+      xp_sum
+    } else {
+      xp_sum %>% filter(Team == input$teamFilter)
+    }
+    
+    table_data %>%
       select(
         Team_with_logo,
         kamp_nummer,
         Total_xP,
+        xP_Comparison,
         Total_xP_wyscout,
         Percent_Difference,
         Point,
         xP_rank,
+        Rank_Difference,
         Real_rank
       ) %>%
       arrange(desc(Total_xP)) %>%
       mutate(
         Total_xP = round(Total_xP, 2),
         Total_xP_wyscout = round(Total_xP_wyscout, 2),
-        Percent_Difference = round(Percent_Difference, 2)
+        Percent_Difference = round(Percent_Difference, 2),
+        # Gradient til Rank_Difference (Placering forskel) som tekstfarve
+        Rank_Difference = case_when(
+          abs(Rank_Difference) == 0 ~ sprintf('<span class="dt-diff-0">%s</span>', Rank_Difference),
+          abs(Rank_Difference) == 1 ~ sprintf('<span class="dt-diff-1">%s</span>', Rank_Difference),
+          abs(Rank_Difference) == 2 ~ sprintf('<span class="dt-diff-2">%s</span>', Rank_Difference),
+          abs(Rank_Difference) == 3 ~ sprintf('<span class="dt-diff-3">%s</span>', Rank_Difference),
+          abs(Rank_Difference) >= 4 ~ sprintf('<span class="dt-diff-4">%s</span>', Rank_Difference),
+          TRUE ~ as.character(Rank_Difference)
+        )
       ) %>%
       datatable(
         rownames = FALSE,
-        colnames = c("Hold", "Antal kampe", "xP (XGBOOST)", "xP (Wyscout)", "Procentvis forskel", "Aktuelle points", "xP placering", "Aktuelle placering"),
+        colnames = c("Hold", "Antal kampe", "xP (XGBOOST)", "", "xP (Wyscout)", "Procentvis forskel", "Aktuelle points", "xP placering", "Placering forskel", "Aktuelle placering"),
         options = list(
           pageLength = 14,
           columnDefs = list(
@@ -235,11 +275,59 @@ server <- function(input, output) {
                 "}"
               ),
               width = "150px"
+            ),
+            list(
+              targets = 3, # xP_Comparison kolonne
+              className = "dt-center",
+              width = "30px"
+            ),
+            list(
+              targets = 8, # Placering forskel kolonne
+              className = "dt-center",
+              width = "50px"
             )
           )
         ),
-        escape = FALSE
+        escape = FALSE,
+        # Tilføj tooltips til kolonneoverskrifter
+        callback = JS(
+          "table.column(2).header().title = 'xP (XGBOOST)<br><span title=\"Forventede point baseret på XGBOOST-modellen\">(?)</span>';",
+          "table.column(3).header().title = '';",
+          "table.column(4).header().title = 'xP (Wyscout)<br><span title=\"Forventede point baseret på Wyscout-data\">(?)</span>';",
+          "table.column(5).header().title = 'Procentvis forskel<br><span title=\"Den procentvise forskel mellem xP (XGBOOST) og xP (Wyscout)\">(?)</span>';",
+          "table.column(6).header().title = 'Aktuelle points<br><span title=\"Holdets faktiske point i sæsonen\">(?)</span>';",
+          "table.column(7).header().title = 'xP placering<br><span title=\"Holdets placering baseret på forventede point (XGBOOST)\">(?)</span>';",
+          "table.column(8).header().title = 'Placering forskel<br><span title=\"Forskel mellem xP placering og Aktuelle placering\">(?)</span>';",
+          "table.column(9).header().title = 'Aktuelle placering<br><span title=\"Holdets faktiske placering baseret på point\">(?)</span>';",
+          "return table;"
+        )
       )
+  })
+  
+  # Ny oversigtstabel
+  output$summaryTable <- renderDT({
+    # Beregn opsummeringsstatistikker
+    summary_data <- xp_sum %>%
+      summarise(
+        `Gennemsnit xP (XGBOOST)` = round(mean(Total_xP, na.rm = TRUE), 2),
+        `Standardafvigelse xP (XGBOOST)` = round(sd(Total_xP, na.rm = TRUE), 2),
+        `Gennemsnit xP (Wyscout)` = round(mean(Total_xP_wyscout, na.rm = TRUE), 2),
+        `Standardafvigelse xP (Wyscout)` = round(sd(Total_xP_wyscout, na.rm = TRUE), 2),
+        `Gennemsnit Procentvis forskel` = round(mean(Percent_Difference, na.rm = TRUE), 2),
+        `Min Procentvis forskel` = round(min(Percent_Difference, na.rm = TRUE), 2),
+        `Max Procentvis forskel` = round(max(Percent_Difference, na.rm = TRUE), 2)
+      )
+    
+    # Konverter til et format, der kan vises som tabel
+    datatable(
+      summary_data,
+      rownames = FALSE,
+      options = list(
+        dom = 't', # Kun vis tabellen, ingen søgning eller paginering
+        pageLength = 1,
+        ordering = FALSE # Deaktiver sortering
+      )
+    )
   })
 }
 
