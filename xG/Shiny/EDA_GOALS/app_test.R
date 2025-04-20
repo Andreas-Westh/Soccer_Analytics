@@ -6,6 +6,7 @@ library(viridis)
 library(purrr)
 library(tidyverse)
 library(ggimage)
+library(gridExtra)
 
 
 allshotevents <- readRDS("allshotevents_Shiny_EDA_1.rds")
@@ -34,11 +35,18 @@ ggplot(allshotevents, aes(x = LOCATIONX, y = LOCATIONY)) +
     legend.position = "bottom"
   )
 
+# Antag at allshotevents er din dataframe
+brondby_data <- allshotevents %>%
+  filter(TEAMNAME.x == "Brøndby") %>%
+  count(SHOTISGOAL, name = "antal") %>%
+  mutate(procent = 100 * antal / sum(antal))
 
+# Vis resultatet
+print(brondby_data)
 
 # -- UI -----------------------------------------------------------
 ui <- dashboardPage(
-  dashboardHeader(title = "Skuddata i Superligaen"),
+  dashboardHeader(title = "Måldata i Superligaen"),
   dashboardSidebar(
     sidebarMenu(
       id = "plot_choice",
@@ -220,7 +228,7 @@ make_plot <- function(data, var, avg_on) {
              geom_point(
                aes(
                  color = factor(SHOTISGOAL),
-                 alpha = ifelse(SHOTISGOAL == 1, 0.1, 0.8)
+                 alpha = ifelse(SHOTISGOAL == 1, 0.2, 0.8)
                ),
                size = 3
              ) +
@@ -455,218 +463,248 @@ make_plot <- function(data, var, avg_on) {
                coord_flip() +
                labs(x = NULL, y = "Gennemsnit pr. kamp", title = "Skud pr. hold pr. kamp") +
                theme_minimal(base_size = 16)
+             
            } else {
-             data %>%
-               group_by(TEAMNAME.x, Team_Ranking, IMAGEDATAURL) %>%
-               summarise(total = n(), .groups = "drop") %>%
+             df_plot <- data %>%
+               mutate(SHOTISGOAL = factor(SHOTISGOAL, levels = c(1, 0), labels = c("Mål", "Ikke mål"))) %>%
+               count(TEAMNAME.x, Team_Ranking, IMAGEDATAURL, SHOTISGOAL, name = "antal") %>%
+               group_by(TEAMNAME.x) %>%
+               mutate(procent = 100 * antal / sum(antal)) %>%
+               ungroup() %>%
                mutate(label = paste0(TEAMNAME.x, " (#", Team_Ranking, ")")) %>%
-               arrange(Team_Ranking) %>%
-               ggplot(aes(x = reorder(label, -Team_Ranking), y = total)) +
-               geom_col(fill = "lightgray", color = "black") +
-               geom_image(aes(image = IMAGEDATAURL), size = 0.06, asp = 1.2) +
-               coord_flip() +
-               labs(x = NULL, y = "Antal skud", title = "Antal skud pr. hold") +
-               theme_minimal(base_size = 16)
+               arrange(Team_Ranking)
+             
+             # Målrate-data til tekst
+             målrate_df <- df_plot %>%
+               filter(SHOTISGOAL == "Mål") %>%
+               select(label, Team_Ranking, procent) %>%
+               mutate(label_text = paste0(round(procent, 1), "%"))
+             
+             ggplot(df_plot, aes(x = reorder(label, -Team_Ranking), y = procent, fill = SHOTISGOAL)) +
+               geom_col(position = position_dodge(width = 0.8), color = "black") +
+               
+               # Tekst med målrate (%)
+               geom_text(
+                 data = målrate_df,
+                 aes(
+                   x = reorder(label, -Team_Ranking),
+                   y = 1.5,
+                   label = label_text
+                 ),
+                 inherit.aes = FALSE,
+                 hjust = 0,
+                 size = 4.5,
+                 fontface = "bold",
+                 color = "white"
+               ) +
+               
+               # Logoer
+               geom_image(
+                 data = df_plot %>% distinct(label, IMAGEDATAURL, Team_Ranking),
+                 aes(x = reorder(label, -Team_Ranking), y = 95, image = IMAGEDATAURL),
+                 inherit.aes = FALSE,
+                 size = 0.06,
+                 asp = 1.2
+               ) +
+               
+               coord_flip(ylim = c(0, 110)) +
+               scale_fill_manual(values = c("Mål" = "#FDBA21", "Ikke mål" = "#0D1C8A")) +
+               labs(x = NULL, y = "Andel (%)", 
+                    title = "Andel mål vs. ikke mål pr. hold", 
+                    subtitle = "Det hvide tal, viser holdets målrate",
+                    fill = "Resultat") +
+               theme_minimal(base_size = 16) +
+               theme(
+                 plot.title = element_text(hjust = 0.5, face = "bold")
+               )
            }
+           
+           
          },
          
          "player_rating" = {
-           if (avg_on) {
-             data_long <- data %>%
-               group_by(MATCH_WYID.x) %>%
-               summarise(mean_overall = mean(overall, na.rm = TRUE),
-                         mean_potential = mean(potential, na.rm = TRUE)) %>%
-               pivot_longer(cols = everything(), names_to = "type", values_to = "rating")
-           } else {
-             data_long <- data %>%
-               select(overall, potential) %>%
-               pivot_longer(cols = everything(), names_to = "type", values_to = "rating")
+           # Opsætning: målrate og rating-type
+           data_ratings <- data %>%
+             mutate(SHOTISGOAL = factor(SHOTISGOAL, levels = c(1, 0), labels = c("Mål", "Ikke mål")))
+           
+           # Funktion til at lave binning + procent
+           bin_rating_data <- function(df, rating_col) {
+             df %>%
+               select(rating = {{ rating_col }}, SHOTISGOAL) %>%
+               drop_na() %>%
+               mutate(bin = cut(rating, breaks = seq(40, 100, by = 5), right = FALSE)) %>%
+               group_by(bin, SHOTISGOAL) %>%
+               summarise(count = n(), .groups = "drop") %>%
+               group_by(bin) %>%
+               mutate(procent = 100 * count / sum(count))
            }
            
+           # Lav datasæt for begge
+           df_overall <- bin_rating_data(data_ratings, overall)
+           df_potential <- bin_rating_data(data_ratings, potential)
+           
+           # Gennemsnit til vertikale linjer 
            mean_overall <- mean(data$overall, na.rm = TRUE)
            mean_potential <- mean(data$potential, na.rm = TRUE)
            
-           ggplot(data_long, aes(x = rating, fill = type)) +
-             geom_histogram(position = "dodge", alpha = 0.8, binwidth = 5, color = "white") +
-             geom_vline(xintercept = mean_overall, color = "#0D1C8A", linewidth = 1, linetype = "dashed") +
-             geom_vline(xintercept = mean_potential, color = "#FDBA21", linewidth = 1, linetype = "dashed") +
-             annotate("text", x = mean_overall, y = Inf, label = paste0("Gns. overall: ", round(mean_overall, 1)),
-                      hjust = 1.1, vjust = 4, color = "#0D1C8A", fontface = "bold") +
-             annotate("text", x = mean_potential, y = Inf, label = paste0("Gns. potential: ", round(mean_potential, 1)),
-                      hjust = -0, vjust = 1.8, color = "#FDBA21", fontface = "bold") +
+           # Plot 1: Overall
+           plot_overall <- ggplot(df_overall, aes(x = bin, y = procent, fill = SHOTISGOAL)) +
+             geom_col(position = position_dodge(width = 0.8), width = 0.7, color = "white") +
+             scale_fill_manual(values = c("Mål" = "#FDBA21", "Ikke mål" = "#0D1C8A")) +
              labs(
-               title = if (avg_on) {
-                 "Gns. spiller-rating pr. kamp"
-               } else {
-                 "Fordeling af skud baseret på spiller-rating"
-               },
-               subtitle = "Inkl. gennemsnitlig rating for Overall og Potential",
-               x = "FIFA-rating",
-               y = if (avg_on) "Gns. rating pr. kamp" else "Antal skud",
-               fill = "Ratingtype"
+               title = "Skudfordeling – Overall-rating",
+               subtitle = "Andel mål/ikke mål pr. rating-bin",
+               x = "Overall-rating", y = "Andel (%)", fill = "Resultat"
              ) +
-             scale_fill_manual(values = c("overall" = "#0D1C8A", "potential" = "#FDBA21"),
-                               labels = c("Overall", "Potential")) +
              theme_minimal() +
-             theme(plot.title = element_text(hjust = 0.5, face = "bold"))
-         },
+             theme(plot.title = element_text(hjust = 0.5, face = "bold"),
+                   plot.subtitle = element_text(hjust = 0.5))
+           
+           # Plot 2: Potential
+           plot_potential <- ggplot(df_potential, aes(x = bin, y = procent, fill = SHOTISGOAL)) +
+             geom_col(position = position_dodge(width = 0.8), width = 0.7, color = "white") +
+             scale_fill_manual(values = c("Mål" = "#FDBA21", "Ikke mål" = "#0D1C8A")) +
+             labs(
+               title = "Skudfordeling – Potential-rating",
+               subtitle = "Andel mål/ikke mål pr. rating-bin",
+               x = "Potential-rating", y = "Andel (%)", fill = "Resultat"
+             ) +
+             theme_minimal() +
+             theme(plot.title = element_text(hjust = 0.5, face = "bold"),
+                   plot.subtitle = element_text(hjust = 0.5))
+           
+           # Kombinér plots
+           gridExtra::grid.arrange(plot_overall, plot_potential, ncol = 2)
+         }
+         
+         ,
          
          
          
          # Possession events
          "possession_events" = {
-           if (avg_on) {
-             mean_value <- allshotevents %>%
-               group_by(MATCH_WYID.x) %>%
-               summarise(mean_events = mean(POSSESSIONEVENTSNUMBER, na.rm = TRUE)) %>%
-               pull(mean_events) %>%
-               mean(na.rm = TRUE)
-             
-             allshotevents %>%
-               group_by(MATCH_WYID.x) %>%
-               summarise(mean_value = mean(POSSESSIONEVENTSNUMBER, na.rm = TRUE)) %>%
-               ggplot(aes(x = mean_value, fill = ..count..)) +
-               geom_histogram(binwidth = 1, color = "white", alpha = 0.9) +
-               scale_fill_gradient(low = "#0D1C8A", high = "#FDBA21") +
-               geom_vline(xintercept = mean_value, color = "#8E05C2", linetype = "dashed", linewidth = 1.2) +
-               annotate("text",
-                        x = mean_value + 1,
-                        y = Inf,
-                        label = paste0("Gns: ", round(mean_value, 1)),
-                        hjust = 0,
-                        vjust = 2,
-                        color = "#8E05C2",
-                        fontface = "bold") +
-               labs(
-                 x = "Gns. antal hændelser pr. kamp",
-                 y = "Antal kampe",
-                 title = "Hvor mange hændelser leder op til skud pr. kamp?"
-               ) +
-               theme_minimal(base_size = 13) +
-               theme(
-                 plot.title = element_text(hjust = 0.5, face = "bold"),
-                 legend.position = "none"
-               ) +
-               theme(plot.title = element_text(hjust = 0.5, face = "bold"))
-             
-           } else {
-             mean_value <- mean(allshotevents$POSSESSIONEVENTSNUMBER, na.rm = TRUE)
-             
-             ggplot(allshotevents, aes(x = POSSESSIONEVENTSNUMBER, fill = ..count..)) +
-               geom_histogram(binwidth = 1, color = "white", alpha = 0.9) +
-               scale_fill_gradient(low = "#0D1C8A", high = "#FDBA21") +
-               geom_vline(xintercept = mean_value, color = "#8E05C2", linetype = "dashed", linewidth = 1.2) +
-               annotate("text",
-                        x = mean_value + 1,
-                        y = Inf,
-                        label = paste0("Gns: ", round(mean_value, 1)),
-                        hjust = 0,
-                        vjust = 2,
-                        color = "#8E05C2",
-                        fontface = "bold") +
-               labs(
-                 x = "Antal 'events' for holdet før skudet",
-                 y = "Antal skud",
-                 title = "Fordeling af possessionslængder før skud"
-               ) +
-               theme_minimal(base_size = 13) +
-               theme(
-                 plot.title = element_text(hjust = 0.5, face = "bold"),
-                 legend.position = "none"
-               ) +
-               theme(plot.title = element_text(hjust = 0.5, face = "bold"))
-           }
-         },
+           # Definér bin-grænser og labels
+           breaks <- c(0, 5, 10, 15, 20, 30, 50, Inf)
+           labels <- c("0–4", "5–9", "10–14", "15–19", "20–29", "30–49", "50+")
+           
+           data_binned <- data %>%
+             filter(!is.na(POSSESSIONEVENTSNUMBER)) %>%
+             mutate(SHOTISGOAL = factor(SHOTISGOAL, levels = c(1, 0), labels = c("Mål", "Ikke mål")),
+                    events_bin = cut(POSSESSIONEVENTSNUMBER, breaks = breaks, labels = labels, right = FALSE)) %>%
+             group_by(events_bin, SHOTISGOAL) %>%
+             summarise(count = n(), .groups = "drop") %>%
+             group_by(events_bin) %>%
+             mutate(procent = 100 * count / sum(count))
+           
+           # Lav plottet
+           ggplot(data_binned, aes(x = events_bin, y = procent, fill = SHOTISGOAL)) +
+             geom_col(position = position_dodge(width = 0.8), width = 0.7, color = "white") +
+             geom_text(aes(label = sprintf("%.1f%%", procent)),
+                       position = position_dodge(width = 0.8),
+                       vjust = -0.3, size = 3) +
+             scale_fill_manual(values = c("Mål" = "#FDBA21", "Ikke mål" = "#0D1C8A")) +
+             labs(
+               title = "Mål vs. ikke mål fordelt efter antal events i possession",
+               subtitle = "",
+               x = "Antal events i angreb (binned)",
+               y = "Andel (%)",
+               fill = "Resultat"
+             ) +
+             theme_minimal(base_size = 13) +
+             theme(
+               plot.title = element_text(hjust = 0.5, face = "bold"),
+               plot.subtitle = element_text(hjust = 0.5),
+               axis.text.x = element_text(face = "bold")
+             )
+         }
+         ,
          
          
          # Possession index
          "possession_index" = {
-           if (avg_on) {
-             data %>%
-               group_by(MATCH_WYID.x) %>%
-               summarise(mean_index = mean(POSSESSIONEVENTINDEX, na.rm = TRUE)) %>%
-               ggplot(aes(x = mean_index)) +
-               geom_histogram(aes(fill = ..x..), binwidth = 5, color = "white") +
-               scale_fill_gradient(low = "#0D1C8A", high = "#FDBA21", guide = "none") +
-               geom_vline(aes(xintercept = mean(mean_index, na.rm = TRUE)),
-                          color = "gray27", linetype = "dashed", linewidth = 1.2) +
-               annotate("text", x = mean(data$POSSESSIONEVENTINDEX, na.rm = TRUE),
-                        y = Inf,
-                        label = paste0("Gns. index: ", round(mean(data$POSSESSIONEVENTINDEX, na.rm = TRUE), 1)),
-                        vjust = 2, hjust = -0.1,
-                        fontface = "bold", color = "gray27", size = 3.5) +
-               labs(
-                 x = "Gns. possession-index pr. kamp",
-                 y = "Antal kampe",
-                 title = "Hvornår i kampens possessions bliver der afsluttet (gennemsnit pr. kamp)?"
-               ) +
-               theme_minimal() +
-               theme(plot.title = element_text(hjust = 0.5, face = "bold"))
-             
-           } else {
-             ggplot(data, aes(x = POSSESSIONEVENTINDEX)) +
-               geom_histogram(aes(fill = ..x..), binwidth = 5, color = "white") +
-               scale_fill_gradient(low = "#0D1C8A", high = "#FDBA21", guide = "none") +
-               geom_vline(aes(xintercept = mean(POSSESSIONEVENTINDEX, na.rm = TRUE)),
-                          color = "gray27", linetype = "dashed", linewidth = 1.2) +
-               annotate("text", x = mean(data$POSSESSIONEVENTINDEX, na.rm = TRUE),
-                        y = Inf,
-                        label = paste0("Gns. index: ", round(mean(data$POSSESSIONEVENTINDEX, na.rm = TRUE), 1)),
-                        vjust = 2, hjust = -0.1,
-                        fontface = "bold", color = "gray27", size = 3.5) +
-               labs(
-                 x = "Possession index i kampen",
-                 y = "Antal skud",
-                 title = "Hvornår i kampen bliver der afsluttet?"
-               ) +
-               theme_minimal() +
-               theme(plot.title = element_text(hjust = 0.5, face = "bold"))
-           }
-         },
+           # -- Definér binning --
+           breaks <- c(0, 5, 10, 15, 20, 30, 40, Inf)
+           labels <- c("0–4", "5–9", "10–14", "15–19", "20–29", "30–39", "40+")
+           
+           data_binned <- data %>%
+             filter(!is.na(POSSESSIONEVENTINDEX)) %>%
+             mutate(
+               SHOTISGOAL = factor(SHOTISGOAL, levels = c(1, 0), labels = c("Mål", "Ikke mål")),
+               index_bin = cut(POSSESSIONEVENTINDEX, breaks = breaks, labels = labels, right = FALSE)
+             ) %>%
+             group_by(index_bin, SHOTISGOAL) %>%
+             summarise(count = n(), .groups = "drop") %>%
+             group_by(index_bin) %>%
+             mutate(procent = 100 * count / sum(count))
+           
+           # -- Plot --
+           ggplot(data_binned, aes(x = index_bin, y = procent, fill = SHOTISGOAL)) +
+             geom_col(position = position_dodge(width = 0.8), width = 0.7, color = "white") +
+             geom_text(aes(label = sprintf("%.1f%%", procent)),
+                       position = position_dodge(width = 0.8),
+                       vjust = -0.3, size = 3) +
+             scale_fill_manual(values = c("Mål" = "#FDBA21", "Ikke mål" = "#0D1C8A")) +
+             labs(
+               title = "Hvornår i kampen bliver der afsluttet?",
+               subtitle = "Skud fordelt på hvor sent i kampen possession startede",
+               x = "Possession index i kampen (binned)",
+               y = "Andel (%)",
+               fill = "Resultat"
+             ) +
+             theme_minimal(base_size = 13) +
+             theme(
+               plot.title = element_text(hjust = 0.5, face = "bold"),
+               plot.subtitle = element_text(hjust = 0.5),
+               axis.text.x = element_text(face = "bold")
+             )
+         }
+         ,
          
          
          
          # Possession duration
          "possession_duration" = {
-           if (avg_on) {
-             duration_data <- data %>%
-               group_by(MATCH_WYID.x) %>%
-               summarise(mean_duration = mean(POSSESSIONDURATION, na.rm = TRUE), .groups = "drop")
-             
-             avg_dur <- mean(duration_data$mean_duration, na.rm = TRUE)
-             
-             ggplot(duration_data, aes(x = mean_duration)) +
-               geom_histogram(aes(fill = ..count..), binwidth = 2, color = "white", alpha = 0.9) +
-               geom_vline(xintercept = avg_dur, linetype = "dashed", color = "#FDBA21", linewidth = 1.2) +
-               annotate("text", x = avg_dur, y = Inf, label = paste0("Gns.: ", round(avg_dur, 1)), 
-                        vjust = 2, hjust = -0.1, color = "#FDBA21", fontface = "bold") +
-               scale_fill_gradient(low = "#0D1C8A", high = "#FDBA21", guide = "none") +
-               labs(
-                 title = "Fordeling af gennemsnitlig possession-varighed pr. kamp",
-                 x = "Gns. varighed (sekunder)",
-                 y = "Antal kampe"
-               ) +
-               theme_minimal() +
-               theme(plot.title = element_text(face = "bold", hjust = 0.5))
-             
-           } else {
-             avg_dur <- mean(data$POSSESSIONDURATION, na.rm = TRUE)
-             
-             ggplot(data, aes(x = POSSESSIONDURATION)) +
-               geom_histogram(aes(fill = ..count..), binwidth = 2, color = "white", alpha = 0.9) +
-               geom_vline(xintercept = avg_dur, linetype = "dashed", color = "#FDBA21", linewidth = 1.2) +
-               annotate("text", x = avg_dur, y = Inf, label = paste0("Gns.: ", round(avg_dur, 1)), 
-                        vjust = 2, hjust = -0.1, color = "#FDBA21", fontface = "bold") +
-               scale_fill_gradient(low = "#0D1C8A", high = "#FDBA21", guide = "none") +
-               labs(
-                 title = "Fordeling af possession-varighed for afslutninger",
-                 x = "Varighed (sekunder)",
-                 y = "Antal skud"
-               ) +
-               theme_minimal() +
-               theme(plot.title = element_text(face = "bold", hjust = 0.5))
-           }
-         },
+           # -- Definér Wyscout-bins --
+           data_binned <- data %>%
+             filter(!is.na(POSSESSIONDURATION)) %>%
+             mutate(
+               SHOTISGOAL = factor(SHOTISGOAL, levels = c(1, 0), labels = c("Mål", "Ikke mål")),
+               duration_bin = cut(
+                 POSSESSIONDURATION,
+                 breaks = c(0, 10, 20, 45, Inf),
+                 labels = c("Short (0–10s)", "Medium (10–20s)", "Long (20–45s)", "Very long (45s+)"),
+                 right = FALSE
+               )
+             ) %>%
+             group_by(duration_bin, SHOTISGOAL) %>%
+             summarise(count = n(), .groups = "drop") %>%
+             group_by(duration_bin) %>%
+             mutate(procent = 100 * count / sum(count))
+           
+           # -- Plot --
+           ggplot(data_binned, aes(x = duration_bin, y = procent, fill = SHOTISGOAL)) +
+             geom_col(position = position_dodge(width = 0.8), width = 0.7, color = "white") +
+             geom_text(
+               aes(label = sprintf("%.1f%%", procent)),
+               position = position_dodge(width = 0.8),
+               vjust = -0.3, size = 3
+             ) +
+             scale_fill_manual(values = c("Mål" = "#FDBA21", "Ikke mål" = "#0D1C8A")) +
+             labs(
+               title = "Varighed af angrebet før afslutning",
+               subtitle = "Fordeling af skud opdelt efter possessionens længde",
+               x = "Varighed (sekunder, Wyscout-kategorier)",
+               y = "Andel (%)",
+               fill = "Resultat"
+             ) +
+             theme_minimal(base_size = 13) +
+             theme(
+               plot.title = element_text(hjust = 0.5, face = "bold"),
+               plot.subtitle = element_text(hjust = 0.5),
+               axis.text.x = element_text(face = "bold")
+             )
+         }
+         
          
          
          
