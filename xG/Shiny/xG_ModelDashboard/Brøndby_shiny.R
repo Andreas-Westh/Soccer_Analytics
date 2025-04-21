@@ -112,9 +112,9 @@ ui <- dashboardPage(
   dashboardHeader(title = "Brøndby IF xG Analyse"),
   dashboardSidebar(
     sidebarMenu(
-      menuItem("Brøndby IF i 2024/2025", icon = icon("home"), startExpanded = TRUE,
-               menuSubItem("Oversigt", tabName = "intro"),
-               menuSubItem("Over-/Underperformance", tabName = "performance", icon = icon("chart-line")),
+      menuItem("Brøndby IF", icon = icon("home"), startExpanded = TRUE,
+               menuSubItem("Oversigt", tabName = "intro_b"),
+               menuSubItem("Over-/Underperformance", tabName = "performance_b", icon = icon("chart-line")),
                #menuSubItem("xG Kort", tabName = "xg_map", icon = icon("map")),
                menuSubItem("Spilleranalyse", tabName = "player", icon = icon("user")),
                menuSubItem("Kamprapport", tabName = "match", icon = icon("futbol"))#,
@@ -124,20 +124,26 @@ ui <- dashboardPage(
   ),
   dashboardBody(
     tabItems(
-      tabItem(tabName = "intro",
+      tabItem(tabName = "intro_b",
+              box(
+                title = "Vigtig Information",
+                status = "warning",
+                solidHeader = TRUE,
+                width = 12,
+                p(strong("OBS OBS"), " Denne Shiny er ment for opgave 1.6 - Hvordan kan Brøndby IF bruge vores model i den igangværende sæson")
+              ),
               h2("Velkommen til Brøndby IF xG Analyse"),
               p("Denne dashboard bruger avanceret xG (forventede mål) modellering til at give indsigt i Brøndby IF's præstationer i den aktuelle sæson. Ved hjælp af xG_XGB-metriken analyserer vi, hvordan Brøndby præsterer i forhold til forventninger, hvor de skaber chancer, hvilke spillere der bidrager mest, og hvordan enkelte kampe udfolder sig."),
               h3("Hvad kan Brøndby IF bruge dette til?"),
               p("Analyserne hjælper Brøndby IF med at:"),
               tags$ul(
-                tags$li("Identificere perioder med over- eller underperformance for at vurdere form og held."),
-                tags$li("Evaluere skudkvalitet og positionering for at optimere angrebsstrategier."),
-                tags$li("Vurdere spilleres bidrag til chance-skabelse og afslutningseffektivitet."),
-                tags$li("Analysere kampresultater for at forstå, om resultater afspejler præstationer.")
+                tags$li(icon("chart-line"), " Identificere perioder med over- eller underperformance for at vurdere form og held."),
+                tags$li(icon("user"), " Vurdere spilleres bidrag til målskabelse og afslutningseffektivitet for at optimere individuelle præstationer."),
+                tags$li(icon("futbol"), " Analysere kampresultater og skudkvalitet for at vurdere, om resultater afspejler præstationer.")
               ),
               p("Brug sidemenuen til at udforske hver analyse.")
       ),
-      tabItem(tabName = "performance",
+      tabItem(tabName = "performance_b",
               h2("Over-/Underperformance Over Tid"),
               p("Dette diagram viser kumulativ xG_XGB (forventede mål) og faktiske mål (SHOTISGOAL) over tid for Brøndby IF. Brug datovælgeren til at zoome ind på specifikke perioder. Perioder, hvor den blå linje (mål) er over den orange linje (xG), indikerer overperformance, mens det modsatte viser underperformance."),
               box(
@@ -161,7 +167,7 @@ ui <- dashboardPage(
               ),
               box(
                 title = "Statistik for Over- og Underpræsterede Kampe",
-                width = "12",
+                width = 12,
                 DTOutput("performance_stats_table")
               )
       ),
@@ -363,9 +369,9 @@ server <- function(input, output, session) {
     ggplot(player_data, aes(x = reorder(SHORTNAME, total_goals))) +
       geom_bar(aes(y = total_goals, fill = performance_label), stat = "identity", alpha = 0.7) +
       geom_point(aes(y = xG_Variation), color = "red", size = 3) +
-      geom_hline(yintercept = 1, color = "white", linetype = "dashed", size = 1) +
+      geom_hline(yintercept = 1, color = "#3B4252", linetype = "dashed", size = 1) +
       coord_flip() +
-      scale_fill_manual(values = c("Overperformer" = "green", "Underperformer" = "red", "Som forventet" = "grey"), name = "Præstation") +
+      scale_fill_manual(values = c("Overperformer" = "#087e8b", "Underperformer" = "#ff5a5f", "Som forventet" = "grey"), name = "Præstation") +
       scale_y_continuous(
         name = "Antal mål",
         sec.axis = sec_axis(~ ., name = "xG Variation (Gns. xG / SD xG)")
@@ -375,23 +381,23 @@ server <- function(input, output, session) {
         y = "Antal mål"
       ) +
       theme(
-        plot.background = element_rect(fill = "#2E3440"),
-        panel.background = element_rect(fill = "#2E3440"),
+        plot.background = element_rect(fill = "white"),
+        panel.background = element_rect(fill = "white"),
         panel.grid.major = element_line(color = "#4C566A", size = 0.2),
         panel.grid.minor = element_line(color = "#4C566A", size = 0.1),
-        text = element_text(color = "white"),
-        axis.text = element_text(color = "white"),
-        axis.title.x = element_text(face = "bold", color = "white", margin = margin(t = 10)),
-        axis.title.y = element_text(face = "bold", color = "white"),
-        axis.text.x = element_text(color = "white"),
-        axis.text.y = element_text(color = "white"),
+        text = element_text(color = "#3B4252"),
+        axis.text = element_text(color = "#3B4252"),
+        axis.title.x = element_text(face = "bold", color = "#3B4252", margin = ggplot2::margin(t = 10)),
+        axis.title.y = element_text(face = "bold", color = "#3B4252"),
+        axis.text.x = element_text(color = "#3B4252"),
+        axis.text.y = element_text(color = "#3B4252"),
         legend.position = "bottom",
-        legend.background = element_rect(fill = "#3B4252", color = "#434C5E"),
-        legend.key = element_rect(fill = "#3B4252", color = "#434C5E"),
+        legend.background = element_rect(fill = "#eaebed", color = "#eaebed"),
+        legend.key = element_rect(fill = "#eaebed", color = "#eaebed"),
         legend.title = element_blank(),
-        legend.text = element_text(face = "bold", color = "white"),
-        plot.title = element_text(hjust = 0.5, color = "white", face = "bold"),
-        plot.margin = margin(t = 20, r = 20, b = 40, l = 20)
+        legend.text = element_text(face = "bold", color = "#3B4252"),
+        plot.title = element_text(hjust = 0.5, color = "#3B4252", face = "bold"),
+        plot.margin = ggplot2::margin(t = 20, r = 20, b = 40, l = 20)
       ) +
       guides(fill = guide_legend(title = NULL), point = guide_legend(title = "xG Variation", override.aes = list(shape = 16)))
   })
