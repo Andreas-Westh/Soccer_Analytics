@@ -267,6 +267,10 @@ ui <- dashboardPage(
                   tags$span(style = "color: blue;", "valgt hold"), " og ",
                   tags$span(style = "color: red;", "modstanderen"),
                   "."
+                ),
+                tags$li(
+                  tags$b("🏠 Brøndby IF"), ": Denne del er ment til opgave 1.6! Giver et indblik i Brøndby IF's performance i den igangværende sæson ",
+                  "baseret på vores egen xG-model. Indeholder analyser på kamp-, hold- og spillerniveau."
                 )
               ),
               box(
@@ -375,16 +379,23 @@ ui <- dashboardPage(
                 width = 12,
                 p(strong("OBS OBS"), " Denne Shiny er ment for opgave 1.6 - Hvordan kan Brøndby IF bruge vores model i den igangværende sæson")
               ),
-              h2("Velkommen til Brøndby IF xG Analyse"),
-              p("Denne dashboard bruger avanceret xG (forventede mål) modellering til at give indsigt i Brøndby IF's præstationer i den aktuelle sæson. Ved hjælp af xG_XGB-metriken analyserer vi, hvordan Brøndby præsterer i forhold til forventninger, hvor de skaber chancer, hvilke spillere der bidrager mest, og hvordan enkelte kampe udfolder sig."),
-              h3("Hvad kan Brøndby IF bruge dette til?"),
-              p("Analyserne hjælper Brøndby IF med at:"),
-              tags$ul(
-                tags$li(icon("chart-line"), " Identificere perioder med over- eller underperformance for at vurdere form og held."),
-                tags$li(icon("user"), " Vurdere spilleres bidrag til målskabelse og afslutningseffektivitet for at optimere individuelle præstationer."),
-                tags$li(icon("futbol"), " Analysere kampresultater og skudkvalitet for at vurdere, om resultater afspejler præstationer.")
+              fluidRow(
+                valueBoxOutput("xgb_auc_box_2425", width = 4),
+                valueBoxOutput("wyscout_auc_box_2425", width = 4),
+                valueBoxOutput("improvement_box_2425", width = 4)
               ),
-              p("Brug sidemenuen til at udforske hver analyse.")
+              h2("Velkommen til Brøndby IF xG Analyse"),
+              p("Denne del af dashboardet bruger vores egenudviklede xG-model baseret på XGBoost til at analysere Brøndby IF's præstationer i den igangværende Superliga-sæson 2024/25."),
+              p("Ved at beregne forventede mål (xG) for hver afslutning – og sammenligne med de faktiske mål – kan vi vurdere, om holdet præsterer bedre eller dårligere end forventet."),
+              p("Modellen er udviklet specifikt på Superliga-data og giver dermed et skræddersyet indblik i:"),
+              tags$ul(
+                tags$li(icon("chart-line"), " Holdets formkurve: over- og underperformance i forskellige perioder."),
+                tags$li(icon("user"), " Spilleranalyse: Hvem skaber og har de bedste chancer, hvem udnytter dem bedst, og hvor på banen er deres skud."),
+                tags$li(icon("futbol"), " Kampvurderinger: giver et realistisk billede af præstationen – uafhængigt af resultatet.")
+              ),
+              p("Ved at bruge denne indsigt kan Brøndby IF evaluere både kollektive og individuelle præstationer løbende – med data i centrum."),
+              p("Navigér i menuen til venstre for at dykke ned i detaljer.")
+              
       ),
       tabItem(tabName = "performance_b",
               h2("Over-/Underperformance Over Tid"),
@@ -447,6 +458,24 @@ ui <- dashboardPage(
                 title = "Detaljeret Spilleroversigt",
                 width = 12,
                 DTOutput("player_table")
+              ),
+              box(
+                title = "Vælg spiller og kamp",
+                width = 12,
+                fluidRow(
+                  column(6,
+                         selectInput("player_select", "Vælg spiller:",
+                                     choices = NULL) # Choices fyldes dynamisk i server-delen
+                  ),
+                  column(6,
+                         uiOutput("player_match_selector")
+                  )
+                )
+              ),
+              box(
+                title = "Spillerens Skud på Banen",
+                width = 12,
+                plotlyOutput("player_shot_map", height = "600px")
               )
       ),
       tabItem(tabName = "match",
@@ -1174,7 +1203,79 @@ server <- function(input, output, session) {
                   backgroundColor = styleInterval(c(-0.5, 0.5), c("#FFE6E6", "#E6FFE6", "#E6FFE6")))
   })
   
+  
+  
+  
+  
+  
+  
+  
+  
+  
+  
   # -- Brøndby IF --
+  # Beregn AUC for 2024/25-datasættet
+  auc_data_2425 <- reactive({
+    # Filtrer data og fjern NA-værdier
+    data <- allshotevents2425_merged %>%
+      filter(!is.na(xG_XGB) & !is.na(SHOTXG) & !is.na(SHOTISGOAL)) %>%
+      mutate(
+        SHOTISGOAL = as.numeric(as.character(SHOTISGOAL)),
+        xG_XGB = as.numeric(as.character(xG_XGB)),
+        SHOTXG = as.numeric(as.character(SHOTXG))
+      )
+    
+    # Beregn AUC for XGBoost
+    roc_xgboost <- roc(data$SHOTISGOAL, data$xG_XGB, quiet = TRUE)
+    auc_xgboost <- auc(roc_xgboost)
+    
+    # Beregn AUC for WyScout
+    roc_wyscout <- roc(data$SHOTISGOAL, data$SHOTXG, quiet = TRUE)
+    auc_wyscout <- auc(roc_wyscout)
+    
+    # Beregn procentforskel
+    percent_diff <- ((auc_xgboost - auc_wyscout) / auc_wyscout) * 100
+    
+    # Returner resultater
+    list(
+      auc_xgboost = round(auc_xgboost, 4),
+      auc_wyscout = round(auc_wyscout, 4),
+      percent_diff = round(percent_diff, 2)
+    )
+  })
+  
+  
+  # ValueBox outputs for intro_b (2024/25 data)
+  output$xgb_auc_box_2425 <- renderValueBox({
+    auc_vals <- auc_data_2425()
+    valueBox(
+      sprintf("%.4f", auc_vals$auc_xgboost), 
+      "XGBoost AUC (2024/25)", 
+      icon = icon("chart-line"), 
+      color = "orange"
+    )
+  })
+  
+  output$wyscout_auc_box_2425 <- renderValueBox({
+    auc_vals <- auc_data_2425()
+    valueBox(
+      sprintf("%.4f", auc_vals$auc_wyscout), 
+      "WyScout AUC (2024/25)", 
+      icon = icon("chart-line"), 
+      color = "green"
+    )
+  })
+  
+  output$improvement_box_2425 <- renderValueBox({
+    auc_vals <- auc_data_2425()
+    valueBox(
+      sprintf("%.2f%%", auc_vals$percent_diff), 
+      "XGBoost Forbedring over WyScout", 
+      icon = icon("arrow-up"), 
+      color = "blue"
+    )
+  })
+  
   # Over-/Underperformance (Side 1)
   filtered_performance_data <- reactive({
     req(input$date_range)
@@ -1366,6 +1467,145 @@ server <- function(input, output, session) {
         )
       )
   })
+  
+  observe({
+    player_choices <- allshotevents2425_merged %>%
+      filter(TEAM_WYID == brondby_team_id) %>%
+      distinct(SHORTNAME) %>%
+      arrange(SHORTNAME) %>%
+      pull(SHORTNAME)
+    
+    updateSelectInput(session, "player_select",
+                      choices = player_choices,
+                      selected = player_choices[1])
+  })
+  
+  # Dynamisk opdater kamp-vælgeren baseret på valgt spiller
+  output$player_match_selector <- renderUI({
+    req(input$player_select)
+    
+    # Hent kampe, hvor den valgte spiller har skudt
+    matches <- allshotevents2425_merged %>%
+      filter(TEAM_WYID == brondby_team_id, SHORTNAME == input$player_select) %>%
+      distinct(MATCH_LABEL) %>%
+      arrange(MATCH_LABEL) %>%
+      pull(MATCH_LABEL)
+    
+    # Tilføj "Alle kampe" som mulighed
+    match_choices <- c("Alle kampe" = "Alle kampe", matches)
+    
+    selectInput("player_match_select", "Vælg kamp:", choices = match_choices)
+  })
+  
+  # Field plot for spillerens skud
+ observe({
+  player_choices <- allshotevents2425_merged %>%
+    filter(TEAM_WYID == brondby_team_id) %>%
+    distinct(SHORTNAME) %>%
+    arrange(SHORTNAME) %>%
+    pull(SHORTNAME)
+  
+  updateSelectInput(session, "player_select",
+                    choices = player_choices,
+                    selected = player_choices[1])
+})
+
+# Dynamisk opdater kamp-vælgeren baseret på valgt spiller
+output$player_match_selector <- renderUI({
+  req(input$player_select)
+  
+  # Hent kampe, hvor den valgte spiller har skudt
+  matches <- allshotevents2425_merged %>%
+    filter(TEAM_WYID == brondby_team_id, SHORTNAME == input$player_select) %>%
+    distinct(MATCH_LABEL) %>%
+    arrange(MATCH_LABEL) %>%
+    pull(MATCH_LABEL)
+  
+  # Tilføj "Alle kampe" som mulighed
+  match_choices <- c("Alle kampe" = "Alle kampe", matches)
+  
+  selectInput("player_match_select", "Vælg kamp:", choices = match_choices)
+})
+
+# Field plot for spillerens skud
+output$player_shot_map <- renderPlotly({
+  req(input$player_select)
+  
+  # Filtrer data for den valgte spiller
+  player_shots <- allshotevents2425_merged %>%
+    filter(TEAM_WYID == brondby_team_id, SHORTNAME == input$player_select) %>%
+    mutate(
+      SHOTISGOAL = as.numeric(as.character(SHOTISGOAL)),
+      xG_XGB = as.numeric(as.character(xG_XGB)),
+      Goal_Label = ifelse(SHOTISGOAL == 1, "Mål", "Ikke mål"),
+      # Hent modstanderholdets navn
+      Opponent = OFFICIALNAME,
+      Hover_Text = paste(
+        "xG: ", round(xG_XGB, 3), "<br>",
+        "Spiller: ", SHORTNAME, "<br>",
+        #"Modstander: ", Opponent, "<br>",
+        "Afstand: ", round(shot_distance, 2), " m", "<br>",
+        "Vinkel: ", round(shot_angle, 2), " grader"
+      )
+    )
+  
+  # Hvis en specifik kamp er valgt, filtrer yderligere
+  if (!is.null(input$player_match_select) && input$player_match_select != "Alle kampe") {
+    player_shots <- player_shots %>%
+      filter(MATCH_LABEL == input$player_match_select)
+  }
+  
+  if (nrow(player_shots) == 0) {
+    p <- ggplot() +
+      annotate_pitch(dimensions = pitch_wyscout, colour = "grey80", fill = "#f5f5f5") +
+      coord_fixed(xlim = c(0, 100), ylim = c(0, 100)) +
+      theme_pitch() +
+      labs(
+        title = paste("Skud for", input$player_select),
+        subtitle = "Ingen skud tilgængelige for denne spiller/kamp."
+      ) +
+      theme(
+        plot.title = element_text(face = "bold", hjust = 0.5),
+        plot.subtitle = element_text(face = "italic", hjust = 0.5)
+      )
+    return(ggplotly(p))
+  }
+  
+  # Lav field plottet
+  p <- ggplot(player_shots, aes(x = LOCATIONX, y = LOCATIONY, text = Hover_Text)) +
+    annotate_pitch(dimensions = pitch_wyscout, colour = "grey80", fill = "#f5f5f5") +
+    geom_point(aes(size = xG_XGB, fill = xG_XGB, shape = Goal_Label), alpha = 0.7) +
+    scale_fill_gradient(low = "#0D1C8A", high = "#FDBA21", name = "xG") +
+    scale_shape_manual(values = c("Mål" = 21, "Ikke mål" = 4), name = "Udfald") +
+    scale_size_continuous(range = c(2, 8), name = "xG") +
+    coord_fixed(xlim = c(0, 100), ylim = c(0, 100)) +
+    theme_pitch() +
+    labs(
+      title = paste("Skud for", input$player_select),
+      subtitle = if (!is.null(input$player_match_select) && input$player_match_select != "Alle kampe") {
+        paste("Kamp:", input$player_match_select)
+      } else {
+        "Alle kampe i sæsonen"
+      }
+    ) +
+    theme(
+      plot.title = element_text(face = "bold", hjust = 0.5),
+      plot.subtitle = element_text(face = "italic", hjust = 0.5),
+      legend.position = "bottom"
+    )
+  
+  ggplotly(p, tooltip = "text") %>%
+    layout(
+      hovermode = "closest",
+      showlegend = TRUE,
+      annotations = list(
+        list(
+          x = 0.5, y = -0.1, text = "Hold musen over punkter for at se xG-detaljer",
+          showarrow = FALSE, xref = "paper", yref = "paper"
+        )
+      )
+    )
+})
   
   # Kamprapport (Side 4)
   output$match_summary <- renderUI({
