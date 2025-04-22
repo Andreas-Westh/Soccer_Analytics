@@ -77,7 +77,7 @@ allpasses <- allpasses %>%
 #pass_data <- allpasses[, c("ANGLE","LENGTH","LOCATIONX","LOCATIONY")]
 allpasses_1match <- allpasses %>% filter(MATCH_WYID.x == 5585724) 
 pass_data <- allpasses_1match[, c("ANGLE","LENGTH","LOCATIONX","LOCATIONY","player_avgpass")]
-#pass_data <- allpasses[, c("ANGLE","LENGTH","LOCATIONX","LOCATIONY","player_avgpass")]
+pass_data <- allpasses[, c("ANGLE","LENGTH","LOCATIONX","LOCATIONY","player_avgpass")]
 pass_data_scaled <- as.data.frame(scale(pass_data))
 
 
@@ -156,9 +156,9 @@ fviz_cluster(
 set.seed(123)
 sample_size <- 50000
 df_sampled <- pass_data_scaled[sample(1:nrow(pass_data_scaled), sample_size), ]
-dftwss <- data.frame(k = 1:10, twss = NA)
+dftwss <- data.frame(k = 1:20, twss = NA)
 # Kmeans
-for (i in 1:10) {
+for (i in 1:20) {
   tmod <- kmeans(df_sampled, centers = i, nstart = 10, iter.max = 500)
   dftwss[i, 'twss'] <- tmod$tot.withinss
 }
@@ -172,6 +172,29 @@ ggplot(dftwss, aes(x = k, y = twss)) +
   scale_x_continuous(breaks = scales::breaks_width(1)) +
   theme_minimal()
 
+ggplot(dftwss, aes(x = k, y = twss)) +
+  geom_line(color = "#1f77b4", size = 1) +
+  geom_point(color = "#d62728", size = 3) +
+  
+  # Lodret linje ved elbow point
+  geom_vline(xintercept = 4, linetype = "dashed", color = "gray40", linewidth = 1) +
+  geom_vline(xintercept = 10, linetype = "dashed", color = "gray40", linewidth = 1) +
+  #annotate("text", x = 8.2, y = max(dftwss$twss)*0.9, label = "Elbow point ≈ 8", hjust = 0, size = 4.5) +
+  
+  labs(
+    title = "Elbow Method: Vælg antal klynger (K)",
+    subtitle = "K ≈ 4 - 10 giver markant fald i within-cluster variation",
+    x = "Antal clusters (K)",
+    y = "Total Within-Cluster Sum of Squares (TWSS)"
+  ) +
+  
+  scale_x_continuous(breaks = 1:20) +
+  theme_minimal(base_size = 13) +
+  theme(
+    plot.title = element_text(face = "bold"),
+    plot.subtitle = element_text(color = "gray30"),
+    axis.title = element_text(face = "bold")
+  )
 
 
 #Silhouette 4????
@@ -252,6 +275,82 @@ data.pca$loadings[, 1:10]
 fviz_pca_var(data.pca, col.var = "red")
 
 
+# Brug samme PCA som tidligere
+pca_input <- player_stats[, c("avg_pass_angle", "avg_LENGTH", "AVG_X_start", "AVG_Y_start", "avg_passes_per_match")]
+pca_scaled <- scale(pca_input)
+pca_result <- prcomp(pca_scaled)
+
+# Data til punkterne (spillere)
+ind_df <- as.data.frame(pca_result$x[, 1:2])
+ind_df$cluster <- as.factor(player_stats$main_cluster)
+
+# Data til variabel-pile (loadings)
+loadings <- as.data.frame(pca_result$rotation[, 1:2])
+loadings$varname <- rownames(loadings)
+# Ændr variabelnavne til noget mere menneskeligt
+loadings$varname <- recode(loadings$varname,
+                           "avg_pass_angle" = "Gns. vinkel",
+                           "avg_LENGTH" = "Gns. længde",
+                           "AVG_X_start" = "Startpos. X",
+                           "AVG_Y_start" = "Startpos. Y",
+                           "avg_passes_per_match" = "Afl. pr. kamp"
+)
+
+
+# Lav plot
+ggplot() +
+  # Spillere
+  geom_point(data = ind_df, aes(x = PC1, y = PC2, color = cluster), alpha = 0.7) +
+  
+  # Variabelpile
+  geom_segment(data = loadings, aes(x = 0, y = 0, xend = PC1 * 3, yend = PC2 * 3),
+               arrow = arrow(length = unit(0.3, "cm")), color = "black") +
+  
+  # Variabelnavne
+  geom_label(data = loadings, aes(x = PC1 * 3.2, y = PC2 * 3.2, label = varname),
+             size = 4, fill = "white", alpha = 0.7, label.size = NA)
+
+  labs(title = "PCA – Spillere + variabel-retning", x = "PC1", y = "PC2") +
+  theme_minimal() +
+  scale_color_brewer(palette = "Dark2") +
+  theme(legend.title = element_blank())
+
+
+  
+  
+  player_stats$sd_total <- (player_stats$sd_pass_lenght + player_stats$sd_pass_angle) / 2
+  ggplot(player_stats, aes(x = as.factor(main_cluster), y = sd_total, fill = as.factor(main_cluster))) +
+    geom_violin(trim = FALSE, alpha = 0.7) +
+    stat_summary(fun = mean, geom = "point", shape = 20, size = 2, color = "black") +
+    labs(title = "Variation i afleveringsstil pr. cluster (violin plot)",
+         x = "Main cluster", y = "Gns. standardafvigelse") +
+    theme_minimal() +
+    theme(legend.position = "none")
+  
+  ggplot(player_stats, aes(x = as.factor(main_cluster), y = sd_total, color = as.factor(main_cluster))) +
+    geom_jitter(width = 0.2, alpha = 0.6, size = 2) +
+    stat_summary(fun = mean, geom = "crossbar", width = 0.4, color = "black") +
+    labs(title = "Spillernes variation i afleveringsstil",
+         x = "Main cluster", y = "Gns. standardafvigelse") +
+    theme_minimal() +
+    theme(legend.position = "none")
+  
+  
+  cluster_variation <- player_stats %>%
+    group_by(main_cluster) %>%
+    summarise(mean_sd = mean(sd_total), sd_sd = sd(sd_total))
+  
+  ggplot(cluster_variation, aes(x = as.factor(main_cluster), y = mean_sd, fill = as.factor(main_cluster))) +
+    geom_col(alpha = 0.7) +
+    geom_errorbar(aes(ymin = mean_sd - sd_sd, ymax = mean_sd + sd_sd), width = 0.2) +
+    labs(title = "Gns. variation i afleveringer pr. cluster",
+         x = "Main cluster", y = "Gennemsnitlig SD") +
+    theme_minimal() +
+    theme(legend.position = "none")
+  
+  
+  
+
 ############################
 #####     HEATMAPS    ######
 ############################
@@ -270,6 +369,61 @@ for (k in 1:8) {
   
   print(p)
 }
+
+
+
+
+# Tom data frame til cluster-stats
+cluster_stats <- data.frame()
+
+# Total antal afleveringer til procentberegning
+total_passes <- nrow(allpasses)
+
+for (k in 1:8) {
+  
+  df_cluster <- allpasses %>% filter(cluster == k)
+  
+  # Gennemsnitlig start- og slutposition
+  avg_start_x <- mean(df_cluster$LOCATIONX, na.rm = TRUE)
+  avg_start_y <- mean(df_cluster$LOCATIONY, na.rm = TRUE)
+  avg_end_x   <- mean(df_cluster$POSSESSIONENDLOCATIONX, na.rm = TRUE)
+  avg_end_y   <- mean(df_cluster$POSSESSIONENDLOCATIONY, na.rm = TRUE)
+  
+  # Beregn og gem stats
+  cluster_stats <- rbind(cluster_stats, data.frame(
+    cluster = k,
+    n_passes = nrow(df_cluster),
+    pct_passes = round(nrow(df_cluster) / total_passes * 100, 2),
+    mean_length = mean(df_cluster$LENGTH, na.rm = TRUE),
+    sd_length = sd(df_cluster$LENGTH, na.rm = TRUE),
+    mean_angle = mean(df_cluster$ANGLE, na.rm = TRUE),
+    sd_angle = sd(df_cluster$ANGLE, na.rm = TRUE)
+  ))
+  
+  # Plot heatmap + pil
+  ggplot(df_cluster) +
+    annotate_pitch(colour = "white", fill = "gray20") +
+    
+    stat_density_2d_filled(aes(x = LOCATIONX, y = LOCATIONY), 
+                           alpha = 0.7, contour_var = "ndensity") +
+    
+    geom_segment(aes(x = avg_start_x, y = avg_start_y,
+                     xend = avg_end_x, yend = avg_end_y),
+                 arrow = arrow(length = unit(0.4, "cm")),
+                 color = "lightgray", size = 1.2) +
+    
+    scale_fill_viridis_d(option = "magma") +
+    theme_pitch() +
+    labs(title = paste("Cluster", k, "- Heatmap + Gennemsnitlig Retning"),
+         x = "Pitch Length", y = "Pitch Width") +
+    theme(legend.position = "right") -> p
+  
+  print(p)
+}
+
+# Se resultater
+print(cluster_stats)
+
 
 ########## Samlet heatmaps  ######################
 ggplot(allpasses, aes(x = LOCATIONX, y = LOCATIONY)) +
@@ -330,7 +484,7 @@ ggplot(player_stats, aes(x = ROLENAME, fill = ROLENAME)) +
 
 # number of player per role
 ggplot(player_stats, aes(x = as.factor(ROLENAME), fill = ROLENAME)) +
-  geom_bar() +
+  geom_bar(position = "dodge") +
   labs(title = "number in every role",
        x = "Main Cluster",
        y = "Number of Players") +
@@ -338,7 +492,7 @@ ggplot(player_stats, aes(x = as.factor(ROLENAME), fill = ROLENAME)) +
 
 # roles in each cluster
 ggplot(player_stats, aes(x = as.factor(main_cluster), fill = ROLENAME)) +
-  geom_bar() +
+  geom_bar(position = "dodge") +
   labs(title = "Number of Players per Main Cluster",
        x = "Main Cluster",
        y = "Number of Players") +
