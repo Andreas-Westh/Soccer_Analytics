@@ -63,3 +63,19 @@ xG/Shiny/xG_ModelDashboard/test_data_yn.rds
 xG/Shiny/xG_ModelDashboard/tree_probs.rds
 xG/Shiny/xG_ModelDashboard/xgb_pred.rds
 
+
+/Clustering/Shiny/.DS_Store
+/Clustering/Shiny/All_Passes_player_stat_clusters.rds
+/Clustering/Shiny/All_Passes_player_stat_clusters_old.rds
+/Clustering/Shiny/Kmod.RDS
+/Clustering/Shiny/POS.rds
+/Clustering/Shiny/passesCLUSTER.rds
+
+
+../Clustering/Shiny/.DS_Store
+../Clustering/Shiny/All_Passes_player_stat_clusters.rds
+../Clustering/Shiny/All_Passes_player_stat_clusters_old.rds
+../Clustering/Shiny/Kmod.RDS
+../Clustering/Shiny/POS.rds
+../Clustering/Shiny/passesCLUSTER.rds
+..
