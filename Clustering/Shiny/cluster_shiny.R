@@ -1,7 +1,5 @@
 # Complete Shiny App for Superligaen Pass Analysis
 # Includes all tabs: Stats, Overview, Kampanalyse, Brøndby Tabskampe
-# Brøndby Tabskampe tab modified to show data across all seasons without season filtering
-# Fixed MATCH_WYID error in brondby_loss_data
 
 # Libraries ----------------------------------------------------------------
 library(shiny)
@@ -211,7 +209,7 @@ ui <- dashboardPage(
         fluidRow(
           box(
             width = 12, 
-            title = "Klik på et holdlogo for at se spillere og aflever jusque spillemønstre",
+            title = "Klik på et holdlogo for at se spillere og afleveringsmønstre",
             plotOutput("logo_plot", height = "220px", click = "logo_click")
           )
         ),
@@ -298,19 +296,31 @@ ui <- dashboardPage(
         fluidRow(
           box(
             width = 12,
-            title = "Dominerende clusters for hold, Brøndby taber til (alle sæsoner)",
+            radioButtons(
+              inputId = "match_outcome",
+              label = "Vælg kampresultat:",
+              choices = c("Tabte kampe", "Vundede kampe"),
+              selected = "Tabte kampe",
+              inline = TRUE
+            )
+          )
+        ),
+        fluidRow(
+          box(
+            width = 12,
+            title = textOutput("brondby_clusters_table_title"),
             DTOutput("brondby_loss_clusters_table")
           )
         ),
         fluidRow(
           box(
             width = 6,
-            title = "Fordeling af modstandernes dominerende clusters",
+            title = textOutput("brondby_cluster_barplot_title"),
             plotOutput("brondby_loss_cluster_barplot")
           ),
           box(
             width = 6,
-            title = "Heatmap for mest hyppige modstander-cluster",
+            title = textOutput("brondby_cluster_heatmap_title"),
             plotOutput("brondby_loss_cluster_heatmap")
           )
         )
@@ -848,43 +858,78 @@ server <- function(input, output, session) {
   })
   
   # --- TAB 4: BRØNDBY TABSKAMPE ---
-  brondby_loss_data <- reactive({
-    # Find Brøndby's losses
-    brondby_losses <- allpasses %>%
-      distinct(MATCH_WYID, MATCH_LABEL, HOME_TEAM, AWAY_TEAM, WINNER_TEAM) %>%
-      filter(
-        (HOME_TEAM == "Brøndby" & WINNER_TEAM == AWAY_TEAM) |
-          (AWAY_TEAM == "Brøndby" & WINNER_TEAM == HOME_TEAM)
-      ) %>%
-      mutate(
-        OPPONENT = ifelse(HOME_TEAM == "Brøndby", AWAY_TEAM, HOME_TEAM)
-      ) %>%
-      select(MATCH_WYID, MATCH_LABEL, OPPONENT)
+  brondby_match_data <- reactive({
+    req(input$match_outcome)
     
-    # Hent modstandernes dominerende clusters
-    opponent_clusters <- Match_summary %>%
-      filter(
-        TEAMNAME %in% brondby_losses$OPPONENT,
-        MATCH_WYID %in% brondby_losses$MATCH_WYID
-      ) %>%
-      select(MATCH_WYID, TEAMNAME, Main_cluster)
-    
-    # Kombiner data
-    result <- brondby_losses %>%
-      left_join(opponent_clusters, by = c("MATCH_WYID", "OPPONENT" = "TEAMNAME"))
+    if (input$match_outcome == "Tabte kampe") {
+      # Brøndby's losses
+      brondby_matches <- allpasses %>%
+        distinct(MATCH_WYID, MATCH_LABEL, HOME_TEAM, AWAY_TEAM, WINNER_TEAM) %>%
+        filter(
+          (HOME_TEAM == "Brøndby" & WINNER_TEAM == AWAY_TEAM) |
+            (AWAY_TEAM == "Brøndby" & WINNER_TEAM == HOME_TEAM)
+        ) %>%
+        mutate(
+          TEAM = ifelse(HOME_TEAM == "Brøndby", AWAY_TEAM, HOME_TEAM),
+          TYPE = "Modstander"
+        ) %>%
+        select(MATCH_WYID, MATCH_LABEL, TEAM, TYPE)
+      
+      # Get opponent clusters
+      clusters <- Match_summary %>%
+        filter(
+          TEAMNAME %in% brondby_matches$TEAM,
+          MATCH_WYID %in% brondby_matches$MATCH_WYID
+        ) %>%
+        select(MATCH_WYID, TEAMNAME, Main_cluster)
+      
+      result <- brondby_matches %>%
+        left_join(clusters, by = c("MATCH_WYID", "TEAM" = "TEAMNAME"))
+      
+    } else {
+      # Brøndby's wins
+      brondby_matches <- allpasses %>%
+        distinct(MATCH_WYID, MATCH_LABEL, HOME_TEAM, AWAY_TEAM, WINNER_TEAM) %>%
+        filter(WINNER_TEAM == "Brøndby") %>%
+        mutate(
+          TEAM = "Brøndby",
+          TYPE = "Brøndby"
+        ) %>%
+        select(MATCH_WYID, MATCH_LABEL, TEAM, TYPE)
+      
+      # Get Brøndby's clusters
+      clusters <- Match_summary %>%
+        filter(
+          TEAMNAME == "Brøndby",
+          MATCH_WYID %in% brondby_matches$MATCH_WYID
+        ) %>%
+        select(MATCH_WYID, TEAMNAME, Main_cluster)
+      
+      result <- brondby_matches %>%
+        left_join(clusters, by = c("MATCH_WYID", "TEAM" = "TEAMNAME"))
+    }
     
     return(result)
   })
   
+  output$brondby_clusters_table_title <- renderText({
+    req(input$match_outcome)
+    if (input$match_outcome == "Tabte kampe") {
+      "Dominerende clusters for hold, Brøndby taber til (alle sæsoner)"
+    } else {
+      "Dominerende clusters for Brøndby i vundne kampe (alle sæsoner)"
+    }
+  })
+  
   output$brondby_loss_clusters_table <- renderDT({
-    req(brondby_loss_data())
+    req(brondby_match_data())
     
     datatable(
-      brondby_loss_data() %>%
-        select(MATCH_LABEL, OPPONENT, Main_cluster) %>%
+      brondby_match_data() %>%
+        select(MATCH_LABEL, TEAM, Main_cluster) %>%
         rename(
           Kamp = MATCH_LABEL,
-          Modstander = OPPONENT,
+          Hold = TEAM,
           `Dominerende Cluster` = Main_cluster
         ),
       options = list(pageLength = 10),
@@ -892,23 +937,45 @@ server <- function(input, output, session) {
     )
   })
   
+  output$brondby_cluster_barplot_title <- renderText({
+    req(input$match_outcome)
+    if (input$match_outcome == "Tabte kampe") {
+      "Fordeling af modstandernes dominerende clusters"
+    } else {
+      "Fordeling af Brøndbys dominerende clusters i vundne kampe"
+    }
+  })
+  
   output$brondby_loss_cluster_barplot <- renderPlot({
-    req(brondby_loss_data())
+    req(brondby_match_data())
     
-    cluster_counts <- brondby_loss_data() %>%
+    cluster_counts <- brondby_match_data() %>%
       group_by(Main_cluster) %>%
       summarise(Antal = n(), .groups = "drop")
     
     ggplot(cluster_counts, aes(x = factor(Main_cluster), y = Antal)) +
       geom_col(fill = "#003366") +
-      labs(x = "Cluster", y = "Antal kampe", title = "Fordeling af modstandernes dominerende clusters") +
+      labs(x = "Cluster", y = "Antal kampe", 
+           title = if (input$match_outcome == "Tabte kampe") 
+             "Fordeling af modstandernes dominerende clusters" 
+           else 
+             "Fordeling af Brøndbys dominerende clusters i vundne kampe") +
       theme_minimal()
   })
   
+  output$brondby_cluster_heatmap_title <- renderText({
+    req(input$match_outcome)
+    if (input$match_outcome == "Tabte kampe") {
+      "Heatmap for mest hyppige modstander-cluster"
+    } else {
+      "Heatmap for Brøndbys mest hyppige cluster i vundne kampe"
+    }
+  })
+  
   output$brondby_loss_cluster_heatmap <- renderPlot({
-    req(brondby_loss_data())
+    req(brondby_match_data())
     
-    top_cluster <- brondby_loss_data() %>%
+    top_cluster <- brondby_match_data() %>%
       count(Main_cluster, sort = TRUE) %>%
       slice(1) %>%
       pull(Main_cluster)
@@ -916,15 +983,27 @@ server <- function(input, output, session) {
     cluster_data <- allpasses %>%
       filter(main_cluster == top_cluster)
     
+    # Calculate average start and end positions
+    avg_start_x <- mean(cluster_data$LOCATIONX, na.rm = TRUE)
+    avg_start_y <- mean(cluster_data$LOCATIONY, na.rm = TRUE)
+    avg_end_x <- mean(cluster_data$POSSESSIONENDLOCATIONX, na.rm = TRUE)
+    avg_end_y <- mean(cluster_data$POSSESSIONENDLOCATIONY, na.rm = TRUE)
+    
     ggplot(cluster_data) +
       annotate_pitch(fill = "gray", colour = "white") +
       stat_density_2d_filled(
         aes(x = LOCATIONX, y = LOCATIONY),
         alpha = 0.7, contour_var = "ndensity"
       ) +
+      geom_segment(
+        aes(x = avg_start_x, y = avg_start_y, xend = avg_end_x, yend = avg_end_y),
+        arrow = arrow(length = unit(0.4, "cm")),
+        color = "lightgray", size = 1.2
+      ) +
       theme_pitch() +
-      labs(title = paste("Start-locations for mest hyppige modstander-cluster", top_cluster)) +
-      scale_fill_viridis_d(option = "magma")
+      labs(title = paste("Start-locations og Gennemsnitlig Retning for Cluster", top_cluster)) +
+      scale_fill_viridis_d(option = "magma") +
+      theme(legend.position = "right")
   })
 }
 
